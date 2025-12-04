@@ -147,3 +147,32 @@ export async function batchUpdateNodes(subscriptionIds) {
     }
 }
 
+
+/**
+ * 测试订阅链接延迟
+ * @param {string} url - 要测试的URL
+ * @returns {Promise<Object>} - 测试结果 { success, latency, status, error }
+ */
+export async function testLatency(url) {
+    try {
+        const response = await fetch('/api/latency_test', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url })
+        });
+
+        if (!response.ok) {
+            const errorData = await response.json().catch(() => ({}));
+            return {
+                success: false,
+                message: errorData.error || `HTTP ${response.status}`,
+                status: response.status
+            };
+        }
+
+        return await response.json();
+    } catch (error) {
+        console.error("Latency test failed:", error);
+        return { success: false, message: '网络请求失败' };
+    }
+}

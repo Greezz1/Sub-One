@@ -47,170 +47,81 @@ function hasDataChanged(oldData, newData) {
  * @returns {Promise<boolean>} - 是否执行了写入操作
  */
 async function conditionalKVPut(env, key, newData, oldData = null) {
-    // 如果没有提供旧数据，先从KV读取
     if (oldData === null) {
         try {
             oldData = await env.SUB_ONE_KV.get(key, 'json');
         } catch (error) {
-            console.warn(`Failed to read old data for key ${key}:`, error);
-            // 读取失败时，为安全起见执行写入
             await env.SUB_ONE_KV.put(key, JSON.stringify(newData));
             return true;
         }
     }
 
-    // 检测数据是否变更
     if (hasDataChanged(oldData, newData)) {
         await env.SUB_ONE_KV.put(key, JSON.stringify(newData));
-        console.log(`[KV Optimized] Data changed for key ${key}, write executed.`);
         return true;
-    } else {
-        console.log(`[KV Optimized] No changes detected for key ${key}, write skipped.`);
-        return false;
     }
+    return false;
 }
-
-// {{ AURA-X: Add - 批量写入优化机制. Approval: 寸止(ID:1735459200). }}
-/**
- * 批量写入队列管理器
- */
-class BatchWriteManager {
-    constructor() {
-        this.writeQueue = new Map(); // key -> {data, timestamp, resolve, reject}
-        this.debounceTimers = new Map(); // key -> timerId
-        this.DEBOUNCE_DELAY = 1000; // 1秒防抖延迟
-    }
-
-    /**
-     * 添加写入任务到队列，使用防抖机制
-     * @param {Object} env - Cloudflare环境对象
-     * @param {string} key - KV键名
-     * @param {any} data - 要写入的数据
-     * @param {any} oldData - 旧数据（用于变更检测）
-     * @returns {Promise<boolean>} - 是否执行了写入
-     */
-    async queueWrite(env, key, data, oldData = null) {
-        return new Promise((resolve, reject) => {
-            // 清除之前的定时器
-            if (this.debounceTimers.has(key)) {
-                clearTimeout(this.debounceTimers.get(key));
-            }
-
-            // 更新队列中的数据
-            this.writeQueue.set(key, {
-                data,
-                oldData,
-                timestamp: Date.now(),
-                resolve,
-                reject
-            });
-
-            // 设置新的防抖定时器
-            const timerId = setTimeout(async () => {
-                await this.executeWrite(env, key);
-            }, this.DEBOUNCE_DELAY);
-
-            this.debounceTimers.set(key, timerId);
-        });
-    }
-
-    /**
-     * 执行实际的写入操作
-     * @param {Object} env - Cloudflare环境对象
-     * @param {string} key - KV键名
-     */
-    async executeWrite(env, key) {
-        const writeTask = this.writeQueue.get(key);
-        if (!writeTask) return;
-
-        try {
-            const wasWritten = await conditionalKVPut(env, key, writeTask.data, writeTask.oldData);
-            writeTask.resolve(wasWritten);
-            console.log(`[Batch Write] Executed write for key ${key}, written: ${wasWritten}`);
-        } catch (error) {
-            console.error(`[Batch Write] Failed to write key ${key}:`, error);
-            writeTask.reject(error);
-        } finally {
-            // 清理
-            this.writeQueue.delete(key);
-            this.debounceTimers.delete(key);
-        }
-    }
-
-    /**
-     * 立即执行所有待写入的任务（用于紧急情况）
-     * @param {Object} env - Cloudflare环境对象
-     */
-    async flushAll(env) {
-        const keys = Array.from(this.writeQueue.keys());
-        const promises = keys.map(key => this.executeWrite(env, key));
-        await Promise.allSettled(promises);
-        console.log(`[Batch Write] Flushed ${keys.length} pending writes`);
-    }
-}
-
-// 全局批量写入管理器实例
-const batchWriteManager = new BatchWriteManager();
 
 // --- [新] 默认设置中增加通知阈值 ---
 const defaultSettings = {
-              FileName: 'Sub-One',
-  mytoken: 'auto',
-  profileToken: 'profiles',
-  subConverter: 'url.v1.mk',
-  subConfig: 'https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Full.ini',
-  prependSubName: true,
-  NotifyThresholdDays: 3, 
-  NotifyThresholdPercent: 90 
+    FileName: 'Sub-One',
+    mytoken: 'auto',
+    profileToken: 'profiles',
+    subConverter: 'sub.xeton.dev',  // 更可靠的后端，支持 Reality
+    subConfig: 'https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Full.ini',
+    prependSubName: true,
+    NotifyThresholdDays: 3,
+    NotifyThresholdPercent: 90
 };
 
 const formatBytes = (bytes, decimals = 2) => {
-  if (!+bytes || bytes < 0) return '0 B';
-  const k = 1024;
-  const dm = decimals < 0 ? 0 : decimals;
-  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-  // toFixed(dm) after dividing by pow(k, i) was producing large decimal numbers
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  if (i < 0) return '0 B'; // Handle log(0) case
-  return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
+    if (!+bytes || bytes < 0) return '0 B';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
+    // toFixed(dm) after dividing by pow(k, i) was producing large decimal numbers
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    if (i < 0) return '0 B'; // Handle log(0) case
+    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(dm))} ${sizes[i]}`;
 };
 
 // --- TG 通知函式 (无修改) ---
 async function sendTgNotification(settings, message) {
-  if (!settings.BotToken || !settings.ChatID) {
-    console.log("TG BotToken or ChatID not set, skipping notification.");
-    return false;
-  }
-  // 为所有消息添加时间戳
-  const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
-  const fullMessage = `${message}\n\n*时间:* \`${now} (UTC+8)\``;
-  
-  const url = `https://api.telegram.org/bot${settings.BotToken}/sendMessage`;
-  const payload = { 
-    chat_id: settings.ChatID, 
-    text: fullMessage, 
-    parse_mode: 'Markdown',
-    disable_web_page_preview: true // 禁用链接预览，使消息更紧凑
-  };
-  
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
-    });
-    if (response.ok) {
-      console.log("TG 通知已成功发送。");
-      return true;
-    } else {
-      const errorData = await response.json();
-      console.error("发送 TG 通知失败：", response.status, errorData);
-      return false;
+    if (!settings.BotToken || !settings.ChatID) {
+        console.log("TG BotToken or ChatID not set, skipping notification.");
+        return false;
     }
-  } catch (error) {
-    console.error("发送 TG 通知时出错：", error);
-    return false;
-  }
+    // 为所有消息添加时间戳
+    const now = new Date().toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' });
+    const fullMessage = `${message}\n\n*时间:* \`${now} (UTC+8)\``;
+
+    const url = `https://api.telegram.org/bot${settings.BotToken}/sendMessage`;
+    const payload = {
+        chat_id: settings.ChatID,
+        text: fullMessage,
+        parse_mode: 'Markdown',
+        disable_web_page_preview: true // 禁用链接预览，使消息更紧凑
+    };
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (response.ok) {
+            console.log("TG 通知已成功发送。");
+            return true;
+        } else {
+            const errorData = await response.json();
+            console.error("发送 TG 通知失败：", response.status, errorData);
+            return false;
+        }
+    } catch (error) {
+        console.error("发送 TG 通知时出错：", error);
+        return false;
+    }
 }
 
 async function handleCronTrigger(env) {
@@ -220,25 +131,26 @@ async function handleCronTrigger(env) {
     const settings = await env.SUB_ONE_KV.get(KV_KEY_SETTINGS, 'json') || defaultSettings;
 
     const nodeRegex = /^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls|socks5):\/\//gm;
+    let changesMade = false;
 
     for (const sub of allSubs) {
         if (sub.url.startsWith('http') && sub.enabled) {
             try {
                 // --- 並行請求流量和節點內容 ---
-                const trafficRequest = fetch(new Request(sub.url, { 
-                    headers: { 'User-Agent': 'Clash for Windows/0.20.39' }, 
+                const trafficRequest = fetch(new Request(sub.url, {
+                    headers: { 'User-Agent': 'Clash for Windows/0.20.39' },
                     redirect: "follow",
-                    cf: { insecureSkipVerify: true } 
+                    cf: { insecureSkipVerify: true }
                 }));
-                const nodeCountRequest = fetch(new Request(sub.url, { 
-                    headers: { 'User-Agent': 'Sub-One-Cron-Updater/1.0' }, 
+                const nodeCountRequest = fetch(new Request(sub.url, {
+                    headers: { 'User-Agent': 'Sub-One-Cron-Updater/1.0' },
                     redirect: "follow",
-                    cf: { insecureSkipVerify: true } 
+                    cf: { insecureSkipVerify: true }
                 }));
                 const [trafficResult, nodeCountResult] = await Promise.allSettled([
                     Promise.race([trafficRequest, new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))]),
                     Promise.race([nodeCountRequest, new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))])
-                ]);   
+                ]);
 
                 if (trafficResult.status === 'fulfilled' && trafficResult.value.ok) {
                     const userInfoHeader = trafficResult.value.headers.get('subscription-userinfo');
@@ -253,28 +165,54 @@ async function handleCronTrigger(env) {
                         changesMade = true;
                     }
                 } else if (trafficResult.status === 'rejected') {
-                     console.error(`Cron: Failed to fetch traffic for ${sub.name}:`, trafficResult.reason.message);
+                    console.error(`Cron: Failed to fetch traffic for ${sub.name}:`, trafficResult.reason.message);
                 }
 
                 if (nodeCountResult.status === 'fulfilled' && nodeCountResult.value.ok) {
                     const text = await nodeCountResult.value.text();
-                    let decoded = '';
-                    try { 
-                        // 嘗試 Base64 解碼
-                        decoded = atob(text.replace(/\s/g, '')); 
-                    } catch { 
-                        decoded = text; 
+                    let nodeCount = 0;
+
+                    // 方法1: 嘗試 Base64 解碼
+                    try {
+                        const decoded = atob(text.replace(/\s/g, ''));
+                        const matches = decoded.match(nodeRegex);
+                        if (matches) {
+                            nodeCount = matches.length;
+                        }
+                    } catch (e) {
+                        // Base64 解码失败，继续尝试其他方法
                     }
-                    const matches = decoded.match(nodeRegex);
-                    if (matches) {
-                        sub.nodeCount = matches.length; // 更新節點數量
+
+                    // 方法2: 嘗試 YAML 解析 (Clash 配置)
+                    if (nodeCount === 0) {
+                        try {
+                            const yamlContent = yaml.load(text);
+                            if (yamlContent && yamlContent.proxies && Array.isArray(yamlContent.proxies)) {
+                                nodeCount = yamlContent.proxies.length;
+                                console.log(`Cron: Parsed Clash config for ${sub.name}, found ${nodeCount} proxies`);
+                            }
+                        } catch (e) {
+                            // YAML 解析失败，继续尝试其他方法
+                        }
+                    }
+
+                    // 方法3: 直接匹配原始文本
+                    if (nodeCount === 0) {
+                        const matches = text.match(nodeRegex);
+                        if (matches) {
+                            nodeCount = matches.length;
+                        }
+                    }
+
+                    if (nodeCount > 0) {
+                        sub.nodeCount = nodeCount;
                         changesMade = true;
                     }
                 } else if (nodeCountResult.status === 'rejected') {
                     console.error(`Cron: Failed to fetch node list for ${sub.name}:`, nodeCountResult.reason.message);
                 }
 
-            } catch(e) {
+            } catch (e) {
                 console.error(`Cron: Unhandled error while updating ${sub.name}`, e.message);
             }
         }
@@ -317,7 +255,7 @@ async function checkAndNotify(sub, settings, env) {
     if (sub.userInfo.expire) {
         const expiryDate = new Date(sub.userInfo.expire * 1000);
         const daysRemaining = Math.ceil((expiryDate - now) / ONE_DAY_MS);
-        
+
         // 检查是否满足通知条件：剩余天数 <= 阈值
         if (daysRemaining <= (settings.NotifyThresholdDays || 7)) {
             // 检查上次通知时间，防止24小时内重复通知
@@ -341,18 +279,10 @@ async function checkAndNotify(sub, settings, env) {
         if (usagePercent >= (settings.NotifyThresholdPercent || 90)) {
             // 检查上次通知时间，防止24小时内重复通知
             if (!sub.lastNotifiedTraffic || (now - sub.lastNotifiedTraffic > ONE_DAY_MS)) {
-                const formatBytes = (bytes) => {
-                    if (!+bytes) return '0 B';
-                    const k = 1024;
-                    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
-                    const i = Math.floor(Math.log(bytes) / Math.log(k));
-                    return `${parseFloat((bytes / Math.pow(k, i)).toFixed(2))} ${sizes[i]}`;
-                };
-                
                 const message = `📈 *流量预警提醒* 📈\n\n*订阅名称:* \`${sub.name || '未命名'}\`\n*状态:* \`已使用 ${usagePercent}%\`\n*详情:* \`${formatBytes(used)} / ${formatBytes(total)}\``;
                 const sent = await sendTgNotification(settings, message);
                 if (sent) {
-                    sub.lastNotifiedTraffic = now; // 更新通知时间戳
+                    sub.lastNotifiedTraffic = now;
                 }
             }
         }
@@ -377,7 +307,7 @@ async function handleApiRequest(request, env) {
             if (!oldData) {
                 return new Response(JSON.stringify({ success: false, message: '未找到需要迁移的旧数据。' }), { status: 404 });
             }
-            
+
             await env.SUB_ONE_KV.put(KV_KEY_SUBS, JSON.stringify(oldData));
             await env.SUB_ONE_KV.put(KV_KEY_PROFILES, JSON.stringify([]));
             await env.SUB_ONE_KV.put(OLD_KV_KEY + '_migrated_on_' + new Date().toISOString(), JSON.stringify(oldData));
@@ -416,7 +346,7 @@ async function handleApiRequest(request, env) {
             headers.append('Set-Cookie', `${COOKIE_NAME}=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0`);
             return new Response(JSON.stringify({ success: true }), { headers });
         }
-        
+
         case '/data': {
             try {
                 const [subs, profiles, settings] = await Promise.all([
@@ -424,13 +354,13 @@ async function handleApiRequest(request, env) {
                     env.SUB_ONE_KV.get(KV_KEY_PROFILES, 'json').then(res => res || []),
                     env.SUB_ONE_KV.get(KV_KEY_SETTINGS, 'json').then(res => res || {})
                 ]);
-                const config = { 
-                    FileName: settings.FileName || 'SUB_ONE', 
+                const config = {
+                    FileName: settings.FileName || 'SUB_ONE',
                     mytoken: settings.mytoken || 'auto',
                     profileToken: settings.profileToken || 'profiles'
                 };
                 return new Response(JSON.stringify({ subs, profiles, config }), { headers: { 'Content-Type': 'application/json' } });
-            } catch(e) {
+            } catch (e) {
                 console.error('[API Error /data]', 'Failed to read from KV:', e);
                 return new Response(JSON.stringify({ error: '读取初始数据失败' }), { status: 500 });
             }
@@ -495,13 +425,12 @@ async function handleApiRequest(request, env) {
                     // 继续保存流程
                 }
 
-                // {{ AURA-X: Modify - 使用条件写入优化数据保存. Approval: 寸止(ID:1735459200). }}
                 // 步骤6: 保存数据到KV存储（使用条件写入）
                 try {
                     await Promise.all([
-                    env.SUB_ONE_KV.put(KV_KEY_SUBS, JSON.stringify(subs)),
-                    env.SUB_ONE_KV.put(KV_KEY_PROFILES, JSON.stringify(profiles))
-                ]);
+                        env.SUB_ONE_KV.put(KV_KEY_SUBS, JSON.stringify(subs)),
+                        env.SUB_ONE_KV.put(KV_KEY_PROFILES, JSON.stringify(profiles))
+                    ]);
                 } catch (kvError) {
                     console.error('[API Error /subs] KV存储写入失败:', kvError);
                     return new Response(JSON.stringify({
@@ -524,114 +453,114 @@ async function handleApiRequest(request, env) {
             }
         }
 
-            case '/node_count': {
-                if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
-                const { url: subUrl } = await request.json();
-                if (!subUrl || typeof subUrl !== 'string' || !/^https?:\/\//.test(subUrl)) {
-                    return new Response(JSON.stringify({ error: 'Invalid or missing url' }), { status: 400 });
+        case '/node_count': {
+            if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+            const { url: subUrl } = await request.json();
+            if (!subUrl || typeof subUrl !== 'string' || !/^https?:\/\//.test(subUrl)) {
+                return new Response(JSON.stringify({ error: 'Invalid or missing url' }), { status: 400 });
+            }
+
+            const result = { count: 0, userInfo: null };
+
+            try {
+                const fetchOptions = {
+                    headers: { 'User-Agent': 'Sub-One-Node-Counter/2.0' },
+                    redirect: "follow",
+                    cf: { insecureSkipVerify: true }
+                };
+                const trafficFetchOptions = {
+                    headers: { 'User-Agent': 'Clash for Windows/0.20.39' },
+                    redirect: "follow",
+                    cf: { insecureSkipVerify: true }
+                };
+
+                const trafficRequest = fetch(new Request(subUrl, trafficFetchOptions));
+                const nodeCountRequest = fetch(new Request(subUrl, fetchOptions));
+
+                const responses = await Promise.allSettled([trafficRequest, nodeCountRequest]);
+
+                // 1. 处理流量请求的结果
+                if (responses[0].status === 'fulfilled' && responses[0].value.ok) {
+                    const trafficResponse = responses[0].value;
+                    const userInfoHeader = trafficResponse.headers.get('subscription-userinfo');
+                    if (userInfoHeader) {
+                        const info = {};
+                        userInfoHeader.split(';').forEach(part => {
+                            const [key, value] = part.trim().split('=');
+                            if (key && value) info[key] = /^\d+$/.test(value) ? Number(value) : value;
+                        });
+                        result.userInfo = info;
+                    }
+                } else if (responses[0].status === 'rejected') {
+                    console.error(`Traffic request for ${subUrl} rejected:`, responses[0].reason);
                 }
-                
-                const result = { count: 0, userInfo: null };
 
-                try {
-                    const fetchOptions = {
-                        headers: { 'User-Agent': 'Sub-One-Node-Counter/2.0' },
-                        redirect: "follow",
-                        cf: { insecureSkipVerify: true }
-                    };
-                    const trafficFetchOptions = {
-                        headers: { 'User-Agent': 'Clash for Windows/0.20.39' },
-                        redirect: "follow",
-                        cf: { insecureSkipVerify: true }
-                    };
+                // 2. 处理节点数请求的结果
+                if (responses[1].status === 'fulfilled' && responses[1].value.ok) {
+                    const nodeCountResponse = responses[1].value;
+                    const text = await nodeCountResponse.text();
 
-                    const trafficRequest = fetch(new Request(subUrl, trafficFetchOptions));
-                    const nodeCountRequest = fetch(new Request(subUrl, fetchOptions));
+                    // 尝试多种解析方法
+                    let nodeCount = 0;
 
-                    // --- [核心修正] 使用 Promise.allSettled 替换 Promise.all ---
-                    const responses = await Promise.allSettled([trafficRequest, nodeCountRequest]);
-
-                    // 1. 处理流量请求的结果
-                    if (responses[0].status === 'fulfilled' && responses[0].value.ok) {
-                        const trafficResponse = responses[0].value;
-                        const userInfoHeader = trafficResponse.headers.get('subscription-userinfo');
-                        if (userInfoHeader) {
-                            const info = {};
-                            userInfoHeader.split(';').forEach(part => {
-                                const [key, value] = part.trim().split('=');
-                                if (key && value) info[key] = /^\d+$/.test(value) ? Number(value) : value;
-                            });
-                            result.userInfo = info;
+                    // 方法1: 尝试Base64解码后匹配节点链接
+                    try {
+                        const decoded = atob(text.replace(/\s/g, ''));
+                        const lineMatches = decoded.match(/^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls):\/\//gm);
+                        if (lineMatches) {
+                            nodeCount = lineMatches.length;
                         }
-                    } else if (responses[0].status === 'rejected') {
-                        console.error(`Traffic request for ${subUrl} rejected:`, responses[0].reason);
+                    } catch (e) {
+                        // Base64解码失败，继续尝试其他方法
                     }
 
-                    // 2. 处理节点数请求的结果
-                    if (responses[1].status === 'fulfilled' && responses[1].value.ok) {
-                        const nodeCountResponse = responses[1].value;
-                        const text = await nodeCountResponse.text();
-                        
-                        // 尝试多种解析方法
-                        let nodeCount = 0;
-                        
-                        // 方法1: 尝试Base64解码后匹配节点链接
+                    // 方法2: 如果是YAML格式，解析Clash配置
+                    if (nodeCount === 0) {
                         try {
-                            const decoded = atob(text.replace(/\s/g, ''));
-                            const lineMatches = decoded.match(/^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls):\/\//gm);
-                            if (lineMatches) {
-                                nodeCount = lineMatches.length;
+                            const yamlContent = yaml.load(text);
+                            if (yamlContent && yamlContent.proxies && Array.isArray(yamlContent.proxies)) {
+                                nodeCount = yamlContent.proxies.length;
+                            } else {
                             }
                         } catch (e) {
-                            // Base64解码失败，继续尝试其他方法
-                        }
-                        
-                        // 方法2: 如果是YAML格式，解析Clash配置
-                        if (nodeCount === 0) {
-                            try {
-                                const yamlContent = yaml.load(text);
-                                if (yamlContent && yamlContent.proxies && Array.isArray(yamlContent.proxies)) {
-                                    nodeCount = yamlContent.proxies.length;
-                                }
-                            } catch (e) {
-                                // YAML解析失败，继续尝试其他方法
-                            }
-                        }
-                        
-                        // 方法3: 直接匹配原始文本中的节点链接
-                        if (nodeCount === 0) {
-                            const lineMatches = text.match(/^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls):\/\//gm);
-                            if (lineMatches) {
-                                nodeCount = lineMatches.length;
-                            }
-                        }
-                        
-                        result.count = nodeCount;
-                    } else if (responses[1].status === 'rejected') {
-                        console.error(`Node count request for ${subUrl} rejected:`, responses[1].reason);
-                    }
-                    
-                    // {{ AURA-X: Modify - 使用条件写入优化节点计数更新. Approval: 寸止(ID:1735459200). }}
-                    // 只有在至少获取到一个有效信息时，才更新数据库
-                    if (result.userInfo || result.count > 0) {
-                        const originalSubs = await env.SUB_ONE_KV.get(KV_KEY_SUBS, 'json') || [];
-                        const allSubs = JSON.parse(JSON.stringify(originalSubs)); // 深拷贝
-                        const subToUpdate = allSubs.find(s => s.url === subUrl);
-
-                        if (subToUpdate) {
-                            subToUpdate.nodeCount = result.count;
-                            subToUpdate.userInfo = result.userInfo;
-
-                            await env.SUB_ONE_KV.put(KV_KEY_SUBS, JSON.stringify(allSubs));
+                            console.error('[YAML Parse] YAML parsing failed:', e.message);
+                            // 继续尝试其他方法
                         }
                     }
-                    
-                } catch (e) {
-                    console.error(`[API Error /node_count] Unhandled exception for URL: ${subUrl}`, e);
+
+                    // 方法3: 直接匹配原始文本中的节点链接
+                    if (nodeCount === 0) {
+                        const lineMatches = text.match(/^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls):\/\//gm);
+                        if (lineMatches) {
+                            nodeCount = lineMatches.length;
+                        }
+                    }
+
+                    result.count = nodeCount;
+                } else if (responses[1].status === 'rejected') {
+                    console.error(`Node count request for ${subUrl} rejected:`, responses[1].reason);
                 }
-                
-                return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+
+                // 只有在至少获取到一个有效信息时，才更新数据库
+                if (result.userInfo || result.count > 0) {
+                    const originalSubs = await env.SUB_ONE_KV.get(KV_KEY_SUBS, 'json') || [];
+                    const allSubs = JSON.parse(JSON.stringify(originalSubs)); // 深拷贝
+                    const subToUpdate = allSubs.find(s => s.url === subUrl);
+
+                    if (subToUpdate) {
+                        subToUpdate.nodeCount = result.count;
+                        subToUpdate.userInfo = result.userInfo;
+
+                        await env.SUB_ONE_KV.put(KV_KEY_SUBS, JSON.stringify(allSubs));
+                    }
+                }
+
+            } catch (e) {
+                console.error(`[API Error /node_count] Unhandled exception for URL: ${subUrl}`, e);
             }
+
+            return new Response(JSON.stringify(result), { headers: { 'Content-Type': 'application/json' } });
+        }
 
         case '/fetch_external_url': { // New case
             if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
@@ -660,7 +589,6 @@ async function handleApiRequest(request, env) {
             }
         }
 
-        // {{ AURA-X: Add - 批量节点更新API端点. Approval: 寸止(ID:1735459200). }}
         case '/batch_update_nodes': {
             if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
             if (!await authMiddleware(request, env)) {
@@ -706,10 +634,10 @@ async function handleApiRequest(request, env) {
 
                             // 更新节点数量
                             const text = await response.text();
-                            
+
                             // 尝试多种解析方法
                             let nodeCount = 0;
-                            
+
                             // 方法1: 尝试Base64解码后匹配节点链接
                             try {
                                 const decoded = atob(text.replace(/\s/g, ''));
@@ -720,7 +648,7 @@ async function handleApiRequest(request, env) {
                             } catch (e) {
                                 // Base64解码失败，继续尝试其他方法
                             }
-                            
+
                             // 方法2: 如果是YAML格式，解析Clash配置
                             if (nodeCount === 0) {
                                 try {
@@ -732,7 +660,7 @@ async function handleApiRequest(request, env) {
                                     // YAML解析失败，继续尝试其他方法
                                 }
                             }
-                            
+
                             // 方法3: 直接匹配原始文本中的节点链接
                             if (nodeCount === 0) {
                                 const lineMatches = text.match(/^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls|socks5):\/\//gm);
@@ -740,7 +668,7 @@ async function handleApiRequest(request, env) {
                                     nodeCount = lineMatches.length;
                                 }
                             }
-                            
+
                             sub.nodeCount = nodeCount;
 
                             return { id: sub.id, success: true, nodeCount: sub.nodeCount, userInfo: sub.userInfo };
@@ -758,7 +686,7 @@ async function handleApiRequest(request, env) {
                 );
 
                 // 使用批量写入管理器保存更新后的数据
-                await batchWriteManager.queueWrite(env, KV_KEY_SUBS, allSubs);
+                await env.SUB_ONE_KV.put(KV_KEY_SUBS, JSON.stringify(allSubs));
 
                 console.log(`[Batch Update] Completed batch update, ${updateResults.filter(r => r.success).length} successful`);
 
@@ -797,9 +725,8 @@ async function handleApiRequest(request, env) {
                     const oldSettings = await env.SUB_ONE_KV.get(KV_KEY_SETTINGS, 'json') || {};
                     const finalSettings = { ...oldSettings, ...newSettings };
 
-                    // {{ AURA-X: Modify - 使用条件写入优化设置保存. Approval: 寸止(ID:1735459200). }}
                     await env.SUB_ONE_KV.put(KV_KEY_SETTINGS, JSON.stringify(finalSettings));
-                    
+
                     const message = `⚙️ *Sub-One 设置更新* ⚙️\n\n您的 Sub-One 应用设置已成功更新。`;
                     await sendTgNotification(finalSettings, message);
 
@@ -811,185 +738,791 @@ async function handleApiRequest(request, env) {
             }
             return new Response('Method Not Allowed', { status: 405 });
         }
+        case '/latency_test': {
+            if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
+            const { url: testUrl } = await request.json();
+
+            if (!testUrl || typeof testUrl !== 'string' || !/^https?:\/\//.test(testUrl)) {
+                return new Response(JSON.stringify({ error: 'Invalid or missing url' }), { status: 400 });
+            }
+
+            try {
+                const startTime = Date.now();
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10s timeout
+
+                const response = await fetch(testUrl, {
+                    method: 'HEAD', // Try HEAD first for speed
+                    headers: { 'User-Agent': 'Sub-One-Latency-Tester/1.0' },
+                    redirect: 'follow',
+                    cf: { insecureSkipVerify: true },
+                    signal: controller.signal
+                });
+
+                clearTimeout(timeoutId);
+                const endTime = Date.now();
+                const latency = endTime - startTime;
+
+                if (response.ok) {
+                    return new Response(JSON.stringify({
+                        success: true,
+                        latency: latency,
+                        status: response.status
+                    }), { headers: { 'Content-Type': 'application/json' } });
+                } else {
+                    // If HEAD fails (some servers block it), try GET
+                    const startTimeGet = Date.now();
+                    const controllerGet = new AbortController();
+                    const timeoutIdGet = setTimeout(() => controllerGet.abort(), 10000);
+
+                    const responseGet = await fetch(testUrl, {
+                        method: 'GET',
+                        headers: { 'User-Agent': 'Sub-One-Latency-Tester/1.0' },
+                        redirect: 'follow',
+                        cf: { insecureSkipVerify: true },
+                        signal: controllerGet.signal
+                    });
+
+                    clearTimeout(timeoutIdGet);
+                    const endTimeGet = Date.now();
+                    const latencyGet = endTimeGet - startTimeGet;
+
+                    if (responseGet.ok) {
+                        return new Response(JSON.stringify({
+                            success: true,
+                            latency: latencyGet,
+                            status: responseGet.status
+                        }), { headers: { 'Content-Type': 'application/json' } });
+                    }
+
+                    return new Response(JSON.stringify({
+                        success: false,
+                        latency: latencyGet,
+                        status: responseGet.status,
+                        error: `HTTP ${responseGet.status}`
+                    }), { headers: { 'Content-Type': 'application/json' } });
+                }
+
+            } catch (e) {
+                return new Response(JSON.stringify({
+                    success: false,
+                    error: e.message === 'The user aborted a request.' ? 'Timeout' : e.message
+                }), { headers: { 'Content-Type': 'application/json' } });
+            }
+        }
+
     }
-    
+
     return new Response('API route not found', { status: 404 });
 }
-// --- 名称前缀辅助函数 (无修改) ---
-function prependNodeName(link, prefix) {
-  if (!prefix) return link;
-  const appendToFragment = (baseLink, namePrefix) => {
-    const hashIndex = baseLink.lastIndexOf('#');
-    const originalName = hashIndex !== -1 ? decodeURIComponent(baseLink.substring(hashIndex + 1)) : '';
-    const base = hashIndex !== -1 ? baseLink.substring(0, hashIndex) : baseLink;
-    if (originalName.startsWith(namePrefix)) {
-        return baseLink;
+
+class SubscriptionParser {
+    constructor() {
+        this.supportedProtocols = [
+            'ss', 'ssr', 'vmess', 'vless', 'trojan',
+            'hysteria', 'hysteria2', 'hy', 'hy2',
+            'tuic', 'anytls', 'socks5'
+        ];
+        this._base64Regex = /^[A-Za-z0-9+\/=]+$/;
+        this._whitespaceRegex = /\s/g;
+        this._newlineRegex = /\r?\n/;
+        this._nodeRegex = null; // 延迟初始化
+        this._protocolRegex = /^(.*?):\/\//;
     }
-    const newName = originalName ? `${namePrefix} - ${originalName}` : namePrefix;
-    return `${base}#${encodeURIComponent(newName)}`;
-  }
-  if (link.startsWith('vmess://')) {
-    try {
-      const base64Part = link.substring('vmess://'.length);
-      const binaryString = atob(base64Part);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-          bytes[i] = binaryString.charCodeAt(i);
-      }
-      const jsonString = new TextDecoder('utf-8').decode(bytes);
-      const nodeConfig = JSON.parse(jsonString);
-      const originalPs = nodeConfig.ps || '';
-      if (!originalPs.startsWith(prefix)) {
-        nodeConfig.ps = originalPs ? `${prefix} - ${originalPs}` : prefix;
-      }
-      const newJsonString = JSON.stringify(nodeConfig);
-      const newBase64Part = btoa(unescape(encodeURIComponent(newJsonString)));
-      return 'vmess://' + newBase64Part;
-    } catch (e) {
-      console.error("为 vmess 节点添加名称前缀失败，将回退到通用方法。", e);
-      return appendToFragment(link, prefix);
+
+    /**
+     * 安全解码 Base64 字符串 (支持 UTF-8)
+     */
+    decodeBase64(str) {
+        try {
+            const binaryString = atob(str);
+            const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
+            return new TextDecoder('utf-8').decode(bytes);
+        } catch (e) {
+            console.warn('Base64 decoding failed:', e);
+            return atob(str); // Fallback to standard atob
+        }
     }
-  }
-  return appendToFragment(link, prefix);
+
+    /**
+     * 解析订阅内容 (通用入口)
+     */
+    parse(content, subscriptionName = '', options = {}) {
+        if (!content || typeof content !== 'string') return [];
+
+        // 0. 预处理：去除 BOM 和首尾空白
+        let raw = content.trim();
+        if (raw.charCodeAt(0) === 0xFEFF) raw = raw.slice(1);
+
+        let nodes = [];
+
+        // 1. 尝试 JSON 解析 (支持 Sing-box, SIP008, Clash JSON)
+        if (raw.startsWith('{') || raw.startsWith('[')) {
+            try {
+                const json = JSON.parse(raw);
+                nodes = this.parseJSON(json);
+                if (nodes.length > 0) return this.processNodes(nodes, subscriptionName, options);
+            } catch (e) {
+                // JSON 解析失败，继续尝试其他格式
+            }
+        }
+
+        // 2. 尝试 YAML 解析 (Clash)
+        // 简单的关键词检查，避免对普通文本进行昂贵的 YAML 解析
+        if (raw.includes('proxies:') || raw.includes('nodes:') || raw.includes('outbounds:')) {
+            try {
+                const yamlContent = yaml.load(raw);
+                nodes = this.parseYAML(yamlContent);
+                if (nodes.length > 0) return this.processNodes(nodes, subscriptionName, options);
+            } catch (e) {
+                // YAML 解析失败
+            }
+        }
+
+        // 3. 尝试 Base64 解码 (递归解析)
+        const base64Clean = raw.replace(this._whitespaceRegex, '');
+        if (this._base64Regex.test(base64Clean) && base64Clean.length > 20) {
+            try {
+                // 自动补全 Padding
+                const padded = base64Clean.padEnd(base64Clean.length + (4 - base64Clean.length % 4) % 4, '=');
+                const decoded = this.decodeBase64(padded);
+
+                // 检查解码后是否包含大量不可见字符 (二进制数据)，如果是则忽略
+                let isBinary = false;
+                for (let i = 0; i < Math.min(decoded.length, 100); i++) {
+                    const code = decoded.charCodeAt(i);
+                    if ((code < 32 && code !== 9 && code !== 10 && code !== 13) || code === 127) {
+                        isBinary = true;
+                        break;
+                    }
+                }
+
+                if (!isBinary) {
+                    // 递归调用 parse
+                    const decodedNodes = this.parse(decoded, subscriptionName, options);
+                    if (decodedNodes.length > 0) return decodedNodes;
+                }
+            } catch (e) {
+                // Base64 解码或递归解析失败
+            }
+        }
+
+        // 4. 最后尝试作为纯文本/列表解析
+        nodes = this.parsePlainText(raw);
+        return this.processNodes(nodes, subscriptionName, options);
+    }
+
+    parseJSON(json) {
+        let nodes = [];
+        if (json.proxies && Array.isArray(json.proxies)) {
+            nodes = this.parseClashProxies(json.proxies);
+        } else if (json.outbounds && Array.isArray(json.outbounds)) {
+            const proxies = json.outbounds.filter(o => o.server && o.server_port);
+            nodes = proxies.map(p => this.convertSingBoxToUrl(p)).filter(u => u);
+        } else if (Array.isArray(json)) {
+            nodes = this.parseClashProxies(json);
+        }
+        return nodes;
+    }
+
+    parseYAML(yamlContent) {
+        if (!yamlContent) return [];
+        if (yamlContent.proxies && Array.isArray(yamlContent.proxies)) {
+            return this.parseClashProxies(yamlContent.proxies);
+        }
+        return [];
+    }
+
+    parsePlainText(content) {
+        const lines = content.split(this._newlineRegex).map(l => l.trim()).filter(l => l);
+        return this.parseNodeLines(lines);
+    }
+
+    parseNodeLines(lines) {
+        if (!this._nodeRegex) {
+            this._nodeRegex = new RegExp(`^(${this.supportedProtocols.join('|')}):\/\/`);
+        }
+        return lines
+            .map(l => l.trim())
+            .filter(line => this._nodeRegex.test(line));
+    }
+
+    parseClashProxies(proxies) {
+        return proxies.map(proxy => this.convertClashProxyToUrl(proxy)).filter(url => url);
+    }
+
+    convertSingBoxToUrl(proxy) {
+        try {
+            const clashProxy = {
+                name: proxy.tag || 'SingBox-Node',
+                type: proxy.type,
+                server: proxy.server,
+                port: proxy.server_port,
+                password: proxy.password,
+                uuid: proxy.uuid,
+                cipher: proxy.method,
+            };
+            return this.convertClashProxyToUrl(clashProxy);
+        } catch (e) {
+            return null;
+        }
+    }
+
+    convertClashProxyToUrl(proxy) {
+        if (!proxy || !proxy.server || !proxy.port) return null;
+        const type = proxy.type?.toLowerCase();
+
+        try {
+            switch (type) {
+                case 'vmess': return this.buildVmessUrl(proxy);
+                case 'vless': return this.buildVlessUrl(proxy);
+                case 'trojan': return this.buildTrojanUrl(proxy);
+                case 'ss': return this.buildShadowsocksUrl(proxy);
+                case 'ssr': return this.buildShadowsocksRUrl(proxy);
+                case 'hysteria':
+                case 'hysteria2': return this.buildHysteriaUrl(proxy);
+                case 'tuic': return this.buildTUICUrl(proxy);
+                case 'anytls': return this.buildAnytlsUrl(proxy);
+                case 'socks5': return this.buildSocks5Url(proxy);
+                default: return null;
+            }
+        } catch (e) {
+            console.warn(`Failed to convert proxy ${proxy.name}:`, e);
+            return null;
+        }
+    }
+
+    // --- URL 构建辅助函数 ---
+    buildVmessUrl(proxy) {
+        // 1. 提取 WebSocket 相关参数 (兼容 ws-opts, ws-path, ws-headers)
+        const wsPath = proxy['ws-opts']?.path || proxy['ws-path'] || proxy.path || '';
+        const wsHeaders = proxy['ws-opts']?.headers || proxy['ws-headers'] || {};
+        const wsHost = wsHeaders.Host || proxy.host || '';
+
+        // 2. 智能判断网络类型 (net): tcp, ws, h2, http2, kcp, quic, grpc
+        let net = proxy.network || 'tcp';
+        if (net === 'tcp' && (proxy['ws-opts'] || proxy['ws-path'] || wsPath)) {
+            net = 'ws';
+        }
+        // http2 和 h2 都映射为 h2
+        if (net === 'http2') net = 'h2';
+
+        // 3. 智能判断伪装类型 (type)
+        let type = 'none';
+        if (net === 'tcp' && (proxy['http-opts'] || proxy.obfs === 'http')) {
+            type = 'http';
+        } else if (net === 'kcp' && proxy['kcp-opts']?.header?.type) {
+            type = proxy['kcp-opts'].header.type;
+        } else if (net === 'quic' && proxy['quic-opts']?.header?.type) {
+            type = proxy['quic-opts'].header.type;
+        } else if (proxy.type && proxy.type !== 'vmess') {
+            // 如果源数据中有明确的非 vmess type (如 http, srtp, utp, wechat-video, dtls, wireguard)，则保留
+            type = proxy.type;
+        }
+
+        // 4. 处理不同传输的 path 和 host
+        let path = wsPath;
+        let host = wsHost;
+
+        // h2/http2 需要特殊处理
+        if (net === 'h2') {
+            path = proxy['h2-opts']?.path || proxy.path || '/';
+            host = (proxy['h2-opts']?.host && Array.isArray(proxy['h2-opts'].host))
+                ? proxy['h2-opts'].host[0]
+                : proxy.host || '';
+        }
+        // gRPC 处理
+        if (net === 'grpc') {
+            path = proxy['grpc-opts']?.['grpc-service-name'] || proxy.serviceName || '';
+        }
+        // QUIC 处理
+        if (net === 'quic' && proxy['quic-opts']) {
+            if (proxy['quic-opts'].security) {
+                // QUIC 加密类型：none, aes-128-gcm, chacha20-poly1305
+                host = proxy['quic-opts'].security;
+            }
+            if (proxy['quic-opts'].key) {
+                path = proxy['quic-opts'].key;
+            }
+        }
+
+        // 5. 智能处理 SNI
+        let sni = proxy.servername || proxy.sni || '';
+        if (!sni && host) sni = host;
+        if (!host && sni) host = sni;
+
+        const config = {
+            v: '2',
+            ps: proxy.name || 'VMess',
+            add: proxy.server,
+            port: proxy.port,
+            id: proxy.uuid,
+            aid: proxy.alterId || 0,
+            scy: proxy.cipher || 'auto',
+            net: net,
+            type: type,
+            host: host,
+            path: path,
+            tls: (proxy.tls === true || proxy.tls === 'true' || proxy.tls === 'tls') ? 'tls' : 'none',
+            sni: sni,
+            fp: proxy['client-fingerprint'] || '',
+            alpn: proxy.alpn ? (Array.isArray(proxy.alpn) ? proxy.alpn.join(',') : proxy.alpn) : '',
+            // 补充关键参数，Subconverter 可识别 (尝试多种命名和类型)
+            udp: proxy.udp,
+            "skip-cert-verify": proxy['skip-cert-verify'],
+            allowInsecure: proxy['skip-cert-verify'],
+            insecure: proxy['skip-cert-verify']
+        };
+        return 'vmess://' + btoa(unescape(encodeURIComponent(JSON.stringify(config))));
+    }
+
+    buildVlessUrl(proxy) {
+        let url = `vless://${proxy.uuid}@${proxy.server}:${proxy.port}`;
+        const params = [];
+
+        // 0. Encryption (v2rayN 必须, 固定为 none)
+        params.push('encryption=none');
+
+        // 1. Transport & Network: tcp, ws, grpc, http, h2, quic, httpupgrade, splithttp
+        let type = proxy.type || 'tcp';
+        if (proxy.network) type = proxy.network;
+        if (type && type !== 'tcp') params.push(`type=${type}`);
+
+
+        // 2. WebSocket
+        if (type === 'ws') {
+            let wsPath = proxy['ws-opts']?.path || proxy.path || '/';
+            let earlyData = proxy['ws-opts']?.['max-early-data'] || proxy['max-early-data'];
+
+            // 从path中提取early data参数（如：/?ed=2560 或 /%3Fed%3D2560）
+            if (wsPath.includes('?ed=') || wsPath.includes('%3Fed%3D')) {
+                // 先解码查找
+                const decodedPath = decodeURIComponent(wsPath);
+                const edMatch = decodedPath.match(/[?&]ed=(\d+)/);
+                if (edMatch) {
+                    earlyData = edMatch[1];
+                    // 从原始path中移除ed参数（支持编码和未编码）
+                    wsPath = wsPath
+                        .replace(/\?ed=\d+/, '')
+                        .replace(/%3Fed%3D\d+/i, '')
+                        .replace(/&ed=\d+/, '')
+                        .replace(/%26ed%3D\d+/i, '');
+
+                    // 如果移除后只剩 / 或 %2F，规范化为 /
+                    if (wsPath === '%2F' || wsPath === '') wsPath = '/';
+                }
+            }
+
+            // 改进编码检测：检查是否包含URL编码字符
+            const isAlreadyEncoded = wsPath.includes('%2F') || wsPath.includes('%3F') || /%.{2}/.test(wsPath);
+            params.push(`path=${isAlreadyEncoded ? wsPath : encodeURIComponent(wsPath)}`);
+
+            if (proxy['ws-opts']?.headers?.Host || proxy.host) {
+                params.push(`host=${encodeURIComponent(proxy['ws-opts']?.headers?.Host || proxy.host)}`);
+            }
+
+            if (earlyData) {
+                params.push(`ed=${earlyData}`);
+            }
+        }
+
+
+        // 3. gRPC
+        if (type === 'grpc') {
+            const serviceName = proxy['grpc-opts']?.['grpc-service-name'] || proxy.serviceName;
+            if (serviceName) params.push(`serviceName=${encodeURIComponent(serviceName)}`);
+            if (proxy['grpc-opts']?.mode || proxy.mode) params.push(`mode=${proxy['grpc-opts']?.mode || proxy.mode}`);
+        }
+
+        // 4. HTTP/2
+        if (type === 'h2' || type === 'http') {
+            if (proxy['h2-opts']?.path || proxy.path) params.push(`path=${encodeURIComponent(proxy['h2-opts']?.path || proxy.path)}`);
+            if (proxy['h2-opts']?.host || proxy.host) {
+                const h2Host = Array.isArray(proxy['h2-opts']?.host) ? proxy['h2-opts'].host[0] : (proxy['h2-opts']?.host || proxy.host);
+                params.push(`host=${encodeURIComponent(h2Host)}`);
+            }
+        }
+
+        // 5. HTTPUpgrade
+        if (type === 'httpupgrade') {
+            if (proxy['httpupgrade-opts']?.path || proxy.path) params.push(`path=${encodeURIComponent(proxy['httpupgrade-opts']?.path || proxy.path)}`);
+            if (proxy['httpupgrade-opts']?.host || proxy.host) params.push(`host=${encodeURIComponent(proxy['httpupgrade-opts']?.host || proxy.host)}`);
+        }
+
+        // 6. SplitHTTP
+        if (type === 'splithttp') {
+            if (proxy['splithttp-opts']?.path || proxy.path) params.push(`path=${encodeURIComponent(proxy['splithttp-opts']?.path || proxy.path)}`);
+            if (proxy['splithttp-opts']?.host || proxy.host) params.push(`host=${encodeURIComponent(proxy['splithttp-opts']?.host || proxy.host)}`);
+        }
+
+        // 7. Security (TLS / Reality)
+        // 支持 reality-opts (Clash Meta) 和 reality_opts (备用)
+        const realityOpts = proxy['reality-opts'] || proxy.reality_opts;
+
+        if (proxy.tls || realityOpts) {
+            const security = realityOpts ? 'reality' : 'tls';
+            params.push(`security=${security}`);
+
+            const sni = proxy.servername || proxy.sni;
+            if (sni) params.push(`sni=${sni}`);
+
+            if (proxy['client-fingerprint']) params.push(`fp=${proxy['client-fingerprint']}`);
+
+            if (proxy.alpn && Array.isArray(proxy.alpn) && proxy.alpn.length > 0) {
+                params.push(`alpn=${encodeURIComponent(proxy.alpn.join(','))}`);
+            }
+
+            // Reality specific
+            if (security === 'reality' && realityOpts) {
+                if (realityOpts['public-key']) params.push(`pbk=${realityOpts['public-key']}`);
+                if (realityOpts['short-id']) params.push(`sid=${realityOpts['short-id']}`);
+                if (realityOpts.spider) params.push(`spider=${encodeURIComponent(realityOpts.spider)}`);
+            }
+        }
+
+        // 8. Flow (XTLS)
+        if (proxy.flow) params.push(`flow=${proxy.flow}`);
+
+        // 9. Insecure / Skip Cert Verify
+        if (proxy['skip-cert-verify'] === true) params.push('allowInsecure=1');
+
+        if (params.length) url += '?' + params.join('&');
+        if (proxy.name) url += '#' + encodeURIComponent(proxy.name);
+        return url;
+    }
+
+    buildTrojanUrl(proxy) {
+        let url = `trojan://${proxy.password}@${proxy.server}:${proxy.port}`;
+        const params = [];
+
+        const sni = proxy.sni || proxy.servername;
+        if (sni) params.push(`sni=${sni}`);
+
+        if (proxy.alpn && Array.isArray(proxy.alpn) && proxy.alpn.length > 0) {
+            params.push(`alpn=${encodeURIComponent(proxy.alpn.join(','))}`);
+        }
+
+        // Transport (WS / gRPC)
+        if (proxy.network === 'ws') {
+            params.push('type=ws');
+            if (proxy['ws-opts']?.path || proxy.path) params.push(`path=${encodeURIComponent(proxy['ws-opts']?.path || proxy.path)}`);
+            if (proxy['ws-opts']?.headers?.Host || proxy.host) params.push(`host=${encodeURIComponent(proxy['ws-opts']?.headers?.Host || proxy.host)}`);
+        } else if (proxy.network === 'grpc') {
+            params.push('type=grpc');
+            const serviceName = proxy['grpc-opts']?.['grpc-service-name'] || proxy.serviceName;
+            if (serviceName) params.push(`serviceName=${encodeURIComponent(serviceName)}`);
+        }
+
+        // Shadow-TLS (Trojan-Go / Sing-box)
+        if (proxy['shadow-tls-password']) {
+            params.push(`shadow-tls-password=${proxy['shadow-tls-password']}`);
+            if (proxy['shadow-tls-sni']) params.push(`shadow-tls-sni=${proxy['shadow-tls-sni']}`);
+        }
+
+        if (proxy['skip-cert-verify'] === true) params.push('allowInsecure=1');
+
+        if (params.length) url += '?' + params.join('&');
+        if (proxy.name) url += '#' + encodeURIComponent(proxy.name);
+        return url;
+    }
+
+    buildShadowsocksUrl(proxy) {
+        // Standard SS: ss://user:pass@host:port
+        // SIP002: ss://base64(method:password)@host:port
+        const auth = `${proxy.cipher}:${proxy.password}`;
+        // 使用安全的Base64编码，支持特殊字符和Unicode
+        const safeBase64 = btoa(unescape(encodeURIComponent(auth)));
+        let url = `ss://${safeBase64}@${proxy.server}:${proxy.port}`;
+
+
+        // Plugin Support (SIP003)
+        if (proxy.plugin) {
+            let pluginName = proxy.plugin;
+            let pluginArgs = [];
+
+            // Map 'obfs' to 'obfs-local' (common convention for simple-obfs)
+            if (pluginName === 'obfs') pluginName = 'obfs-local';
+
+            if (proxy['plugin-opts']) {
+                const opts = proxy['plugin-opts'];
+
+                // Handle specific plugin mappings
+                if (pluginName === 'obfs-local' || pluginName === 'simple-obfs') {
+                    if (opts.mode) pluginArgs.push(`obfs=${opts.mode}`);
+                    if (opts.host) pluginArgs.push(`obfs-host=${opts.host}`);
+                    if (opts.uri) pluginArgs.push(`obfs-uri=${opts.uri}`);
+                } else if (pluginName === 'v2ray-plugin') {
+                    if (opts.mode) pluginArgs.push(`mode=${opts.mode}`);
+                    if (opts.host) pluginArgs.push(`host=${opts.host}`);
+                    if (opts.path) pluginArgs.push(`path=${opts.path}`);
+                    if (opts.tls === true) pluginArgs.push('tls');
+                    if (opts.mux === true) pluginArgs.push('mux');
+                } else if (pluginName === 'shadow-tls') {
+                    if (opts.host) pluginArgs.push(`host=${opts.host}`);
+                    if (opts.password) pluginArgs.push(`password=${opts.password}`);
+                } else {
+                    // Generic fallback for other plugins
+                    for (const [key, value] of Object.entries(opts)) {
+                        if (value === true) pluginArgs.push(key);
+                        else if (value !== false && value !== undefined) pluginArgs.push(`${key}=${value}`);
+                    }
+                }
+            }
+
+            let pluginStr = pluginName;
+            if (pluginArgs.length > 0) {
+                pluginStr += `;${pluginArgs.join(';')}`;
+            }
+            url += `/?plugin=${encodeURIComponent(pluginStr)}`;
+        }
+
+        if (proxy.name) url += '#' + encodeURIComponent(proxy.name);
+        return url;
+    }
+
+    buildShadowsocksRUrl(proxy) {
+        const config = [
+            proxy.server, proxy.port, proxy.protocol || 'origin',
+            proxy.cipher, proxy.obfs || 'plain',
+            btoa(unescape(encodeURIComponent(proxy.password)))  // 安全编码支持特殊字符
+        ].join(':');
+        const params = [];
+        if (proxy['protocol-param']) params.push(`protoparam=${btoa(proxy['protocol-param'])}`);
+        if (proxy['obfs-param']) params.push(`obfsparam=${btoa(proxy['obfs-param'])}`);
+        if (proxy.name) params.push(`remarks=${btoa(unescape(encodeURIComponent(proxy.name)))}`);
+
+        let url = `ssr://${btoa(config)}`;
+        if (params.length) url += '/?' + params.join('&');
+        return url;
+    }
+
+    buildHysteriaUrl(proxy) {
+        // Hysteria 2: hysteria2://[auth@]hostname[:port]/?[key=value]&[key=value]...
+        let url = `hysteria2://${proxy.auth || ''}@${proxy.server}:${proxy.port}`;
+        const params = [];
+
+        const sni = proxy.sni || proxy.servername;
+        if (sni) params.push(`sni=${sni}`);
+
+        if (proxy.obfs) {
+            params.push(`obfs=${proxy.obfs}`);
+            if (proxy['obfs-password']) params.push(`obfs-password=${proxy['obfs-password']}`);
+        }
+
+        if (proxy.alpn && Array.isArray(proxy.alpn) && proxy.alpn.length > 0) {
+            params.push(`alpn=${encodeURIComponent(proxy.alpn.join(','))}`);
+        }
+
+        if (proxy['skip-cert-verify'] === true) params.push('insecure=1');
+
+        if (params.length) url += '?' + params.join('&');
+        if (proxy.name) url += '#' + encodeURIComponent(proxy.name);
+        return url;
+    }
+
+    buildTUICUrl(proxy) {
+        // TUIC v5: tuic://UUID:PASSWORD@SERVER_ADDRESS:PORT/?congestion_control=bbr
+        let url = `tuic://${proxy.uuid}:${proxy.password}@${proxy.server}:${proxy.port}`;
+        const params = [];
+
+        const sni = proxy.sni || proxy.servername;
+        if (sni) params.push(`sni=${sni}`);
+
+        if (proxy.alpn && Array.isArray(proxy.alpn) && proxy.alpn.length > 0) {
+            params.push(`alpn=${encodeURIComponent(proxy.alpn[0])}`); // TUIC URL usually takes one ALPN or comma separated
+        }
+
+        if (proxy.congestion_controller) params.push(`congestion_control=${proxy.congestion_controller}`);
+        if (proxy.udp_relay_mode) params.push(`udp_relay_mode=${proxy.udp_relay_mode}`);
+        if (proxy['skip-cert-verify'] === true) params.push('allow_insecure=1');
+        if (proxy.disable_sni === true) params.push('disable_sni=1');
+
+        if (params.length) url += '?' + params.join('&');
+        if (proxy.name) url += '#' + encodeURIComponent(proxy.name);
+        return url;
+    }
+
+    buildAnytlsUrl(proxy) {
+        let url = `anytls://${proxy.password}@${proxy.server}:${proxy.port}`;
+        const params = [];
+
+        const sni = proxy.sni || proxy.servername;
+        if (sni) params.push(`sni=${sni}`);
+
+        if (proxy['client-fingerprint']) params.push(`fp=${proxy['client-fingerprint']}`);
+        if (proxy['idle-session-check-interval']) params.push(`idle_session_check_interval=${proxy['idle-session-check-interval']}`);
+        if (proxy['idle-session-timeout']) params.push(`idle_session_timeout=${proxy['idle-session-timeout']}`);
+        if (proxy['min-idle-session']) params.push(`min_idle_session=${proxy['min-idle-session']}`);
+        if (proxy['skip-cert-verify'] === true) params.push('insecure=1');
+
+        if (params.length) url += '?' + params.join('&');
+        if (proxy.name) url += '#' + encodeURIComponent(proxy.name);
+        return url;
+    }
+
+    buildSocks5Url(proxy) {
+        let url = 'socks5://';
+        if (proxy.username && proxy.password) url += `${proxy.username}:${proxy.password}@`;
+        url += `${proxy.server}:${proxy.port}`;
+        if (proxy.name) url += '#' + encodeURIComponent(proxy.name);
+        return url;
+    }
+
+    processNodes(nodes, subName, options) {
+        let processed = nodes;
+
+        // 1. 处理 Include/Exclude 规则
+        if (options.exclude && options.exclude.trim()) {
+            const rules = options.exclude.trim().split('\n').map(r => r.trim()).filter(Boolean);
+            const keepRules = rules.filter(r => r.toLowerCase().startsWith('keep:'));
+
+            if (keepRules.length > 0) {
+                // 白名单模式
+                const nameRegexParts = [];
+                const protocolsToKeep = new Set();
+                keepRules.forEach(rule => {
+                    const content = rule.substring(5).trim(); // 'keep:'.length
+                    if (content.toLowerCase().startsWith('proto:')) {
+                        content.substring(6).split(',').forEach(p => protocolsToKeep.add(p.trim().toLowerCase()));
+                    } else {
+                        nameRegexParts.push(content);
+                    }
+                });
+                const nameRegex = nameRegexParts.length ? new RegExp(nameRegexParts.join('|'), 'i') : null;
+
+                processed = processed.filter(link => {
+                    const proto = link.split(':')[0].toLowerCase();
+                    if (protocolsToKeep.has(proto)) return true;
+                    if (nameRegex) {
+                        const name = this.extractName(link);
+                        if (nameRegex.test(name)) return true;
+                    }
+                    return false;
+                });
+            } else {
+                // 黑名单模式
+                const protocolsToExclude = new Set();
+                const nameRegexParts = [];
+                rules.forEach(rule => {
+                    if (rule.toLowerCase().startsWith('proto:')) {
+                        rule.substring(6).split(',').forEach(p => protocolsToExclude.add(p.trim().toLowerCase()));
+                    } else {
+                        nameRegexParts.push(rule);
+                    }
+                });
+                const nameRegex = nameRegexParts.length ? new RegExp(nameRegexParts.join('|'), 'i') : null;
+
+                processed = processed.filter(link => {
+                    const proto = link.split(':')[0].toLowerCase();
+                    if (protocolsToExclude.has(proto)) return false;
+                    if (nameRegex) {
+                        const name = this.extractName(link);
+                        if (nameRegex.test(name)) return false;
+                    }
+                    return true;
+                });
+            }
+        }
+
+        // 2. 添加前缀
+        if (options.prependSubName && subName) {
+            processed = processed.map(link => this.prependName(link, subName));
+        }
+
+        return processed;
+    }
+
+    extractName(link) {
+        try {
+            const hashIndex = link.lastIndexOf('#');
+            if (hashIndex !== -1) return decodeURIComponent(link.substring(hashIndex + 1));
+            // 特殊处理 vmess
+            if (link.startsWith('vmess://')) {
+                const config = JSON.parse(new TextDecoder().decode(Uint8Array.from(atob(link.substring(8)), c => c.charCodeAt(0))));
+                return config.ps || '';
+            }
+        } catch (e) { }
+        return '';
+    }
+
+    prependName(link, prefix) {
+        const appendToFragment = (baseLink, p) => {
+            const hashIndex = baseLink.lastIndexOf('#');
+            const originalName = hashIndex !== -1 ? decodeURIComponent(baseLink.substring(hashIndex + 1)) : '';
+            const base = hashIndex !== -1 ? baseLink.substring(0, hashIndex) : baseLink;
+            if (originalName.startsWith(p)) return baseLink;
+            const newName = originalName ? `${p} - ${originalName}` : p;
+            return `${base}#${encodeURIComponent(newName)}`;
+        };
+
+        if (link.startsWith('vmess://')) {
+            try {
+                const base64 = link.substring(8);
+                const json = new TextDecoder().decode(Uint8Array.from(atob(base64), c => c.charCodeAt(0)));
+                const config = JSON.parse(json);
+                if (!config.ps?.startsWith(prefix)) {
+                    config.ps = config.ps ? `${prefix} - ${config.ps}` : prefix;
+                    return 'vmess://' + btoa(unescape(encodeURIComponent(JSON.stringify(config))));
+                }
+                return link;
+            } catch (e) {
+                return appendToFragment(link, prefix);
+            }
+        }
+        return appendToFragment(link, prefix);
+    }
 }
 
-// --- 节点列表生成函数 ---
-async function generateCombinedNodeList(context, config, userAgent, subs, prependedContent = '') {
-    const nodeRegex = /^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls|socks5):\/\//;
-    const processedManualNodes = subs.filter(sub => !sub.url.toLowerCase().startsWith('http')).map(node => {
-        if (node.isExpiredNode) {
-            return node.url; // Directly use the URL for expired node
-        } else {
-            return (config.prependSubName) ? prependNodeName(node.url, '手动节点') : node.url;
-        }
-    }).join('\n');
+const subscriptionParser = new SubscriptionParser();
 
+async function generateCombinedNodeList(context, config, userAgent, subs, prependedContent = '') {
+    // 1. 处理手动节点
+    const manualNodes = subs.filter(sub => !sub.url.toLowerCase().startsWith('http'));
+    const processedManualNodes = subscriptionParser.processNodes(
+        manualNodes.map(n => n.url),
+        '手动节点',
+        { prependSubName: config.prependSubName }
+    );
+
+    // 2. 处理 HTTP 订阅
     const httpSubs = subs.filter(sub => sub.url.toLowerCase().startsWith('http'));
     const subPromises = httpSubs.map(async (sub) => {
         try {
-            const requestHeaders = { 'User-Agent': userAgent };
             const response = await Promise.race([
-                fetch(new Request(sub.url, { headers: requestHeaders, redirect: "follow", cf: { insecureSkipVerify: true } })),
-                new Promise((_, reject) => setTimeout(() => reject(new Error('Request timed out')), 10000))
+                fetch(new Request(sub.url, {
+                    headers: { 'User-Agent': userAgent },
+                    redirect: "follow",
+                    cf: { insecureSkipVerify: true }
+                })),
+                new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
             ]);
-            if (!response.ok) return '';
-            let text = await response.text();
-            try {
-                const cleanedText = text.replace(/\s/g, '');
-                if (cleanedText.length > 20 && /^[A-Za-z0-9+\/=]+$/.test(cleanedText)) {
-                    const binaryString = atob(cleanedText);
-                    const bytes = new Uint8Array(binaryString.length);
-                    for (let i = 0; i < binaryString.length; i++) { bytes[i] = binaryString.charCodeAt(i); }
-                    text = new TextDecoder('utf-8').decode(bytes);
-                }
-            } catch (e) {}
-            let validNodes = text.replace(/\r\n/g, '\n').split('\n')
-                .map(line => line.trim()).filter(line => nodeRegex.test(line));
 
-            // [核心重構] 引入白名單 (keep:) 和黑名單 (exclude) 模式
-            if (sub.exclude && sub.exclude.trim() !== '') {
-                const rules = sub.exclude.trim().split('\n').map(r => r.trim()).filter(Boolean);
-                
-                const keepRules = rules.filter(r => r.toLowerCase().startsWith('keep:'));
+            if (!response.ok) return [];
+            const text = await response.text();
 
-                if (keepRules.length > 0) {
-                    // --- 白名單模式 (Inclusion Mode) ---
-                    const nameRegexParts = [];
-                    const protocolsToKeep = new Set();
-
-                    keepRules.forEach(rule => {
-                        const content = rule.substring('keep:'.length).trim();
-                        if (content.toLowerCase().startsWith('proto:')) {
-                            const protocols = content.substring('proto:'.length).split(',').map(p => p.trim().toLowerCase());
-                            protocols.forEach(p => protocolsToKeep.add(p));
-                        } else {
-                            nameRegexParts.push(content);
-                        }
-                    });
-
-                    const nameRegex = nameRegexParts.length > 0 ? new RegExp(nameRegexParts.join('|'), 'i') : null;
-                    
-                    validNodes = validNodes.filter(nodeLink => {
-                        // 檢查協議是否匹配
-                        const protocolMatch = nodeLink.match(/^(.*?):\/\//);
-                        const protocol = protocolMatch ? protocolMatch[1].toLowerCase() : '';
-                        if (protocolsToKeep.has(protocol)) {
-                            return true;
-                        }
-
-                        // 檢查名稱是否匹配
-                        if (nameRegex) {
-                            const hashIndex = nodeLink.lastIndexOf('#');
-                            if (hashIndex !== -1) {
-                                try {
-                                    const nodeName = decodeURIComponent(nodeLink.substring(hashIndex + 1));
-                                    if (nameRegex.test(nodeName)) {
-                                        return true;
-                                    }
-                                } catch (e) { /* 忽略解碼錯誤 */ }
-                            }
-                        }
-                        return false; // 白名單模式下，不匹配任何規則則排除
-                    });
-
-                } else {
-                    // --- 黑名單模式 (Exclusion Mode) ---
-                    const protocolsToExclude = new Set();
-                    const nameRegexParts = [];
-
-                    rules.forEach(rule => {
-                        if (rule.toLowerCase().startsWith('proto:')) {
-                            const protocols = rule.substring('proto:'.length).split(',').map(p => p.trim().toLowerCase());
-                            protocols.forEach(p => protocolsToExclude.add(p));
-                        } else {
-                            nameRegexParts.push(rule);
-                        }
-                    });
-                    
-                    const nameRegex = nameRegexParts.length > 0 ? new RegExp(nameRegexParts.join('|'), 'i') : null;
-
-                    validNodes = validNodes.filter(nodeLink => {
-                        const protocolMatch = nodeLink.match(/^(.*?):\/\//);
-                        const protocol = protocolMatch ? protocolMatch[1].toLowerCase() : '';
-                        if (protocolsToExclude.has(protocol)) {
-                            return false;
-                        }
-
-                        if (nameRegex) {
-                            const hashIndex = nodeLink.lastIndexOf('#');
-                            if (hashIndex !== -1) {
-                                try {
-                                    const nodeName = decodeURIComponent(nodeLink.substring(hashIndex + 1));
-                                    if (nameRegex.test(nodeName)) {
-                                        return false;
-                                    }
-                                } catch (e) { /* 忽略解碼錯誤 */ }
-                            }
-                        }
-                        return true;
-                    });
-                }
-            }
-            return (config.prependSubName && sub.name)
-                ? validNodes.map(node => prependNodeName(node, sub.name)).join('\n')
-                : validNodes.join('\n');
-        } catch (e) { return ''; }
+            return subscriptionParser.parse(text, sub.name, {
+                exclude: sub.exclude,
+                prependSubName: config.prependSubName
+            });
+        } catch (e) {
+            console.error(`Failed to fetch/parse sub ${sub.name}:`, e);
+            return [];
+        }
     });
-    const processedSubContents = await Promise.all(subPromises);
-    const combinedContent = (processedManualNodes + '\n' + processedSubContents.join('\n'));
-    const uniqueNodesString = [...new Set(combinedContent.split('\n').map(line => line.trim()).filter(line => line))].join('\n');
 
-    // 确保最终的字符串在非空时以换行符结束，以兼容 subconverter
-    let finalNodeList = uniqueNodesString;
-    if (finalNodeList.length > 0 && !finalNodeList.endsWith('\n')) {
-        finalNodeList += '\n';
-    }
+    const processedSubResults = await Promise.all(subPromises);
+    const allNodes = [...processedManualNodes, ...processedSubResults.flat()];
 
-    // 将虚假节点（如果存在）插入到列表最前面
+    // 3. 去重
+    const uniqueNodes = [...new Set(allNodes)];
+
+    let finalContent = uniqueNodes.join('\n');
+    if (finalContent.length > 0 && !finalContent.endsWith('\n')) finalContent += '\n';
+
     if (prependedContent) {
-        return `${prependedContent}\n${finalNodeList}`;
+        return `${finalContent}${prependedContent}`;
     }
-    return finalNodeList;
+    return finalContent;
 }
 
 // --- [核心修改] 订阅处理函数 ---
@@ -1008,7 +1541,7 @@ async function handleSubRequest(context) {
     const allSubs = subsData || [];
     const allProfiles = profilesData || [];
     // 關鍵：我們在這裡定義了 `config`，後續都應該使用它
-    const config = { ...defaultSettings, ...settings }; 
+    const config = { ...defaultSettings, ...settings };
 
     let token = '';
     let profileIdentifier = null;
@@ -1075,20 +1608,22 @@ async function handleSubRequest(context) {
             return new Response('Profile not found or disabled', { status: 404 });
         }
     } else {
-        // [修正] 使用 config 變量
         if (!token || token !== config.mytoken) {
             return new Response('Invalid Token', { status: 403 });
         }
         targetSubs = allSubs.filter(s => s.enabled);
-        // [修正] 使用 config 變量
         effectiveSubConverter = config.subConverter;
         effectiveSubConfig = config.subConfig;
     }
 
+    // 如果 subConverter 为空或只有空白字符，使用默认值
     if (!effectiveSubConverter || effectiveSubConverter.trim() === '') {
-        return new Response('Subconverter backend is not configured.', { status: 500 });
+        effectiveSubConverter = defaultSettings.subConverter;
     }
-    
+    if (!effectiveSubConfig || effectiveSubConfig.trim() === '') {
+        effectiveSubConfig = defaultSettings.subConfig;
+    }
+
     let targetFormat = url.searchParams.get('target');
     if (!targetFormat) {
         const supportedFormats = ['clash', 'singbox', 'surge', 'loon', 'base64', 'v2ray', 'trojan'];
@@ -1109,7 +1644,7 @@ async function handleSubRequest(context) {
             ['clash.meta', 'clash'],
             ['clash-verge', 'clash'],
             ['meta', 'clash'],
-            
+
             // 其他客戶端
             ['stash', 'clash'],
             ['nekoray', 'clash'],
@@ -1140,7 +1675,7 @@ async function handleSubRequest(context) {
         const country = request.headers.get('CF-IPCountry') || 'N/A';
         const domain = url.hostname;
         let message = `🛰️ *订阅被访问* 🛰️\n\n*域名:* \`${domain}\`\n*客户端:* \`${userAgentHeader}\`\n*IP 地址:* \`${clientIp} (${country})\`\n*请求格式:* \`${targetFormat}\``;
-        
+
         if (profileIdentifier) {
             message += `\n*订阅组:* \`${subName}\``;
             const profile = allProfiles.find(p => (p.customId && p.customId === profileIdentifier) || p.id === profileIdentifier);
@@ -1149,14 +1684,14 @@ async function handleSubRequest(context) {
                 message += `\n*到期时间:* \`${expiryDateStr}\``;
             }
         }
-        
+
         context.waitUntil(sendTgNotification(config, message));
     }
 
     let prependedContentForSubconverter = '';
 
     if (isProfileExpired) { // Use the flag set earlier
-                    prependedContentForSubconverter = ''; // Expired node is now in targetSubs
+        prependedContentForSubconverter = ''; // Expired node is now in targetSubs
     } else {
         // Otherwise, add traffic remaining info if applicable
         const totalRemainingBytes = targetSubs.reduce((acc, sub) => {
@@ -1174,7 +1709,9 @@ async function handleSubRequest(context) {
         }
     }
 
-    const combinedNodeList = await generateCombinedNodeList(context, config, userAgentHeader, targetSubs, prependedContentForSubconverter);
+    // 使用固定的 User-Agent 请求上游订阅，避免因客户端 UA 导致被屏蔽或返回错误格式
+    const upstreamUserAgent = 'Clash for Windows/0.20.39';
+    const combinedNodeList = await generateCombinedNodeList(context, config, upstreamUserAgent, targetSubs, prependedContentForSubconverter);
 
     if (targetFormat === 'base64') {
         let contentToEncode;
@@ -1196,15 +1733,30 @@ async function handleSubRequest(context) {
         const headers = { "Content-Type": "text/plain; charset=utf-8", 'Cache-Control': 'no-store, no-cache' };
         return new Response(base64Content, { headers });
     }
-    
-    const subconverterUrl = new URL(`https://${effectiveSubConverter}/sub`);
+
+    // 智能处理：如果用户填入了 http:// 或 https:// 前缀，自动去除，防止 URL 拼接错误
+    let cleanSubConverter = effectiveSubConverter.replace(/^https?:\/\//, '').replace(/\/$/, '');
+    const subconverterUrl = new URL(`https://${cleanSubConverter}/sub`);
     subconverterUrl.searchParams.set('target', targetFormat);
+
+    // 针对 Clash Meta / Mihomo / Clash Verge 内核，添加 ver=meta 参数
+    // 这能确保 Subconverter 输出兼容 Meta 内核的配置 (保留更多字段如 udp, skip-cert-verify, vless 等)
+    const uaLow = userAgentHeader.toLowerCase();
+    if (targetFormat === 'clash' && (
+        uaLow.includes('mihomo') ||
+        uaLow.includes('clash-verge') ||
+        uaLow.includes('meta') ||
+        uaLow.includes('flyclash')
+    )) {
+        subconverterUrl.searchParams.set('ver', 'meta');
+    }
+
     subconverterUrl.searchParams.set('url', callbackUrl);
     if ((targetFormat === 'clash' || targetFormat === 'loon' || targetFormat === 'surge') && effectiveSubConfig && effectiveSubConfig.trim() !== '') {
         subconverterUrl.searchParams.set('config', effectiveSubConfig);
     }
     subconverterUrl.searchParams.set('new_name', 'true');
-    
+
     try {
         const subconverterResponse = await fetch(subconverterUrl.toString(), {
             method: 'GET',
@@ -1217,7 +1769,7 @@ async function handleSubRequest(context) {
         const responseText = await subconverterResponse.text();
         const responseHeaders = new Headers(subconverterResponse.headers);
         responseHeaders.set("Content-Disposition", `attachment; filename*=utf-8''${encodeURIComponent(subName)}`);
-        
+
         // 优化：根据目标格式设置正确的Content-Type，确保客户端能正确识别和导入
         let contentType = 'text/plain; charset=utf-8';
         if (targetFormat === 'clash' || targetFormat === 'singbox' || targetFormat === 'surge' || targetFormat === 'loon') {
@@ -1228,7 +1780,7 @@ async function handleSubRequest(context) {
         }
         responseHeaders.set('Content-Type', contentType);
         responseHeaders.set('Cache-Control', 'no-store, no-cache');
-        
+
         return new Response(responseText, { status: subconverterResponse.status, statusText: subconverterResponse.statusText, headers: responseHeaders });
     } catch (error) {
         console.error(`[Sub-One Final Error] ${error.message}`);

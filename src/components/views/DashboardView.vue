@@ -1,11 +1,12 @@
-<script setup>
-import { ref, computed, onMounted, onUnmounted, defineAsyncComponent, defineEmits } from 'vue';
-import { saveSubs, batchUpdateNodes } from '../../lib/api.js';
-import { extractNodeName } from '../../lib/utils.js';
-import { useToastStore } from '../../stores/toast.js';
-import { useUIStore } from '../../stores/ui.js';
-import { useSubscriptions } from '../../composables/useSubscriptions.js';
-import { useManualNodes } from '../../composables/useManualNodes.js';
+<script setup lang="ts">
+import { ref, computed, onMounted, onUnmounted, defineAsyncComponent, defineEmits, type PropType } from 'vue';
+import { saveSubs, batchUpdateNodes } from '../../lib/api';
+import { extractNodeName } from '../../lib/utils';
+import { useToastStore } from '../../stores/toast';
+import { useUIStore } from '../../stores/ui';
+import { useSubscriptions } from '../../composables/useSubscriptions';
+import { useManualNodes } from '../../composables/useManualNodes';
+import type { Subscription, Profile, Node, AppConfig, InitialData } from '../../types';
 
 // --- 组件导入 ---
 import DashboardHome from '../tabs/DashboardHome.vue';
@@ -24,7 +25,10 @@ const ProfileModal = defineAsyncComponent(() => import('../modals/ProfileModal.v
 
 // --- 基礎 Props 和狀態 ---
 const props = defineProps({
-  data: Object,
+  data: {
+    type: Object as PropType<InitialData | null>,
+    required: false
+  },
   activeTab: {
     type: String,
     default: 'subscriptions'
@@ -37,20 +41,20 @@ const { showToast } = useToastStore();
 const uiStore = useUIStore();
 const isLoading = ref(true);
 const dirty = ref(false);
-const saveState = ref('idle');
+const saveState = ref<'idle' | 'saving' | 'success'>('idle');
 
 
 
 // --- 將狀態和邏輯委託給 Composables ---
-const markDirty = () => { dirty.value = true; saveState.value = 'idle'; };
-const initialSubs = ref([]);
-const initialNodes = ref([]);
+
+const initialSubs = ref<Subscription[]>([]);
+const initialNodes = ref<Node[]>([]);
 
 const {
   subscriptions, subsCurrentPage, subsTotalPages, paginatedSubscriptions,
   changeSubsPage, addSubscription, updateSubscription, deleteSubscription, deleteAllSubscriptions,
   addSubscriptionsFromBulk, handleUpdateNodeCount,
-} = useSubscriptions(initialSubs, markDirty);
+} = useSubscriptions(initialSubs);
 
 
 
@@ -60,15 +64,15 @@ const {
   manualNodes, manualNodesCurrentPage, manualNodesTotalPages, paginatedManualNodes, searchTerm,
   changeManualNodesPage, addNode, updateNode, deleteNode, deleteAllNodes,
   addNodesFromBulk, autoSortNodes, deduplicateNodes,
-} = useManualNodes(initialNodes, markDirty);
+} = useManualNodes(initialNodes);
 
-const manualNodesPerPage = 24;
+
 
 // --- 訂閱組 (Profile) 相關狀態 ---
-const profiles = ref([]);
-const config = ref({});
+const profiles = ref<Profile[]>([]);
+const config = ref<AppConfig>({});
 const isNewProfile = ref(false);
-const editingProfile = ref(null);
+const editingProfile = ref<Profile | null>(null);
 const showProfileModal = ref(false);
 const showDeleteProfilesModal = ref(false);
 
@@ -82,7 +86,7 @@ const paginatedProfiles = computed(() => {
   return profiles.value.slice(start, end);
 });
 
-const changeProfilesPage = (page) => {
+const changeProfilesPage = (page: number) => {
   if (page < 1 || page > profilesTotalPages.value) return;
   profilesCurrentPage.value = page;
 };
@@ -117,11 +121,11 @@ const isSortingNodes = ref(false);
 
 
 // --- 編輯專用模態框狀態 ---
-const editingSubscription = ref(null);
+const editingSubscription = ref<Subscription | null>(null);
 const isNewSubscription = ref(false);
 const showSubModal = ref(false);
 
-const editingNode = ref(null);
+const editingNode = ref<Node | null>(null);
 const isNewNode = ref(false);
 const showNodeModal = ref(false);
 
@@ -134,10 +138,10 @@ const showDeleteSingleNodeModal = ref(false);
 const showDeleteSingleProfileModal = ref(false);
 const showSubscriptionImportModal = ref(false);
 const showNodeDetailsModal = ref(false);
-const selectedSubscription = ref(null);
-const selectedProfile = ref(null);
+const selectedSubscription = ref<Subscription | null>(null);
+const selectedProfile = ref<Profile | null>(null);
 const isUpdatingAllSubs = ref(false);
-const deletingItemId = ref(null);
+const deletingItemId = ref<string | null>(null);
 
 
 // 新增一个处理函数来调用去重逻辑
@@ -156,8 +160,8 @@ const initializeState = () => {
   if (props.data) {
     const subsData = props.data.subs || [];
 
-    initialSubs.value = subsData.filter(item => item.url && HTTP_REGEX.test(item.url));
-    initialNodes.value = subsData.filter(item => !item.url || !HTTP_REGEX.test(item.url));
+    initialSubs.value = subsData.filter(item => item.url && HTTP_REGEX.test(item.url)) as Subscription[];
+    initialNodes.value = subsData.filter(item => !item.url || !HTTP_REGEX.test(item.url)) as Node[];
 
     profiles.value = (props.data.profiles || []).map(p => ({
       ...p,
@@ -173,7 +177,7 @@ const initializeState = () => {
   dirty.value = false;
 };
 
-const handleBeforeUnload = (event) => {
+const handleBeforeUnload = (event: BeforeUnloadEvent) => {
   if (dirty.value) {
     event.preventDefault();
     event.returnValue = '您有未保存的更改，確定要离开嗎？';
@@ -243,7 +247,7 @@ const handleSave = async () => {
       const errorMessage = result.message || result.error || '保存失败，请稍后重试';
       throw new Error(errorMessage);
     }
-  } catch (error) {
+  } catch (error: any) {
     console.error('保存数据时发生错误:', error);
 
     // 优化：使用Map提升查找性能
@@ -266,7 +270,7 @@ const handleSave = async () => {
   }
 };
 // --- 公共函数：从订阅组中移除ID ---
-const removeIdFromProfiles = (id, field) => {
+const removeIdFromProfiles = (id: string, field: 'subscriptions' | 'manualNodes') => {
   profiles.value.forEach(p => {
     const index = p[field].indexOf(id);
     if (index !== -1) {
@@ -276,7 +280,7 @@ const removeIdFromProfiles = (id, field) => {
 };
 
 // --- 公共函数：清空订阅组中的字段 ---
-const clearProfilesField = (field) => {
+const clearProfilesField = (field: 'subscriptions' | 'manualNodes') => {
   profiles.value.forEach(p => {
     p[field].length = 0;
   });
@@ -289,12 +293,13 @@ const triggerDataUpdate = () => {
   });
 };
 
-const handleDeleteSubscriptionWithCleanup = async (subId) => {
+const handleDeleteSubscriptionWithCleanup = async (subId: string) => {
   deletingItemId.value = subId;
   showDeleteSingleSubModal.value = true;
 };
 
 const handleConfirmDeleteSingleSub = async () => {
+  if (!deletingItemId.value) return;
   deleteSubscription(deletingItemId.value);
   removeIdFromProfiles(deletingItemId.value, 'subscriptions');
   await handleDirectSave('订阅删除');
@@ -302,12 +307,13 @@ const handleConfirmDeleteSingleSub = async () => {
   showDeleteSingleSubModal.value = false;
 };
 
-const handleDeleteNodeWithCleanup = async (nodeId) => {
+const handleDeleteNodeWithCleanup = async (nodeId: string) => {
   deletingItemId.value = nodeId;
   showDeleteSingleNodeModal.value = true;
 };
 
 const handleConfirmDeleteSingleNode = async () => {
+  if (!deletingItemId.value) return;
   deleteNode(deletingItemId.value);
   removeIdFromProfiles(deletingItemId.value, 'manualNodes');
   await handleDirectSave('节点删除');
@@ -332,7 +338,7 @@ const handleDeleteAllNodesWithCleanup = async () => {
 };
 
 // 批量删除订阅
-const handleBatchDeleteSubs = async (subIds) => {
+const handleBatchDeleteSubs = async (subIds: string[]) => {
   if (!subIds || subIds.length === 0) return;
 
   subIds.forEach(id => {
@@ -345,7 +351,7 @@ const handleBatchDeleteSubs = async (subIds) => {
 };
 
 // 批量删除订阅组
-const handleBatchDeleteProfiles = async (profileIds) => {
+const handleBatchDeleteProfiles = async (profileIds: string[]) => {
   if (!profileIds || profileIds.length === 0) return;
 
   profiles.value = profiles.value.filter(p => !profileIds.includes(p.id));
@@ -362,7 +368,7 @@ const handleBatchDeleteProfiles = async (profileIds) => {
 };
 
 // 批量删除节点
-const handleBatchDeleteNodes = async (nodeIds) => {
+const handleBatchDeleteNodes = async (nodeIds: string[]) => {
   if (!nodeIds || nodeIds.length === 0) return;
 
   nodeIds.forEach(id => {
@@ -379,13 +385,13 @@ const handleAutoSortNodes = async () => {
   await handleDirectSave('节点排序');
   triggerDataUpdate();
 };
-const handleBulkImport = async (importText) => {
+const handleBulkImport = async (importText: string) => {
   if (!importText) return;
 
   // 优化：使用更高效的字符串处理
   const lines = importText.split('\n').map(line => line.trim()).filter(Boolean);
-  const newSubs = [];
-  const newNodes = [];
+  const newSubs: Subscription[] = [];
+  const newNodes: Node[] = [];
 
   for (const line of lines) {
     const newItem = {
@@ -397,9 +403,9 @@ const handleBulkImport = async (importText) => {
     };
 
     if (HTTP_REGEX.test(line)) {
-      newSubs.push(newItem);
+      newSubs.push(newItem as any);
     } else if (NODE_PROTOCOL_REGEX.test(line)) {
-      newNodes.push(newItem);
+      newNodes.push(newItem as any);
     }
   }
 
@@ -415,10 +421,10 @@ const handleBulkImport = async (importText) => {
 };
 const handleAddSubscription = () => {
   isNewSubscription.value = true;
-  editingSubscription.value = { name: '', url: '', enabled: true, exclude: '' }; // 新增 exclude
+  editingSubscription.value = { id: '', name: '', url: '', enabled: true, exclude: '' }; // 新增 exclude
   showSubModal.value = true;
 };
-const handleEditSubscription = (subId) => {
+const handleEditSubscription = (subId: string) => {
   const sub = subscriptions.value.find(s => s.id === subId);
   if (sub) {
     isNewSubscription.value = false;
@@ -464,7 +470,7 @@ const handleAddNode = () => {
   editingNode.value = { id: crypto.randomUUID(), name: '', url: '', enabled: true };
   showNodeModal.value = true;
 };
-const handleEditNode = (nodeId) => {
+const handleEditNode = (nodeId: string) => {
   const node = manualNodes.value.find(n => n.id === nodeId);
   if (node) {
     isNewNode.value = false;
@@ -472,9 +478,10 @@ const handleEditNode = (nodeId) => {
     showNodeModal.value = true;
   }
 };
-const handleNodeUrlInput = (event) => {
+const handleNodeUrlInput = (event: Event) => {
   if (!editingNode.value) return;
-  const newUrl = event.target.value;
+  const target = event.target as HTMLTextAreaElement;
+  const newUrl = target.value;
   if (newUrl && !editingNode.value.name) {
     editingNode.value.name = extractNodeName(newUrl);
   }
@@ -495,7 +502,7 @@ const handleSaveNode = async () => {
   triggerDataUpdate();
   showNodeModal.value = false;
 };
-const handleProfileToggle = async (updatedProfile) => {
+const handleProfileToggle = async (updatedProfile: Profile) => {
   const index = profiles.value.findIndex(p => p.id === updatedProfile.id);
   if (index !== -1) {
     profiles.value[index].enabled = updatedProfile.enabled;
@@ -507,19 +514,21 @@ const handleProfileToggle = async (updatedProfile) => {
 };
 const handleAddProfile = () => {
   isNewProfile.value = true;
-  editingProfile.value = { name: '', enabled: true, subscriptions: [], manualNodes: [], customId: '', subConverter: '', subConfig: '', expiresAt: '' };
+  editingProfile.value = { id: '', name: '', enabled: true, subscriptions: [], manualNodes: [], customId: '', subConverter: '', subConfig: '', expiresAt: '' };
   showProfileModal.value = true;
 };
-const handleEditProfile = (profileId) => {
+const handleEditProfile = (profileId: string) => {
   const profile = profiles.value.find(p => p.id === profileId);
   if (profile) {
     isNewProfile.value = false;
     editingProfile.value = JSON.parse(JSON.stringify(profile));
-    editingProfile.value.expiresAt = profile.expiresAt || ''; // Ensure expiresAt is copied
+    if (editingProfile.value) {
+      editingProfile.value.expiresAt = profile.expiresAt || ''; // Ensure expiresAt is copied
+    }
     showProfileModal.value = true;
   }
 };
-const handleSaveProfile = async (profileData) => {
+const handleSaveProfile = async (profileData: Profile) => {
   if (!profileData?.name) {
     showToast('订阅组名称不能为空', 'error');
     return;
@@ -552,12 +561,13 @@ const handleSaveProfile = async (profileData) => {
   });
   showProfileModal.value = false;
 };
-const handleDeleteProfile = async (profileId) => {
+const handleDeleteProfile = async (profileId: string) => {
   deletingItemId.value = profileId;
   showDeleteSingleProfileModal.value = true;
 };
 
 const handleConfirmDeleteSingleProfile = async () => {
+  if (!deletingItemId.value) return;
   profiles.value = profiles.value.filter(p => p.id !== deletingItemId.value);
   // 如果当前页面没有内容且不是第一页，则跳转到上一页
   if (paginatedProfiles.value.length === 0 && profilesCurrentPage.value > 1) {
@@ -578,7 +588,7 @@ const handleDeleteAllProfiles = async () => {
   });
   showDeleteProfilesModal.value = false;
 };
-const copyProfileLink = (profileId) => {
+const copyProfileLink = (profileId: string) => {
   const token = config.value?.profileToken;
   if (!token || token === 'auto' || !token.trim()) {
     showToast('请在设置中配置一个固定的“订阅组分享Token”', 'error');
@@ -593,13 +603,13 @@ const copyProfileLink = (profileId) => {
 };
 
 
-const handleShowNodeDetails = (subscription) => {
+const handleShowNodeDetails = (subscription: Subscription) => {
   selectedSubscription.value = subscription;
   selectedProfile.value = null;
   showNodeDetailsModal.value = true;
 };
 
-const handleShowProfileNodeDetails = (profile) => {
+const handleShowProfileNodeDetails = (profile: Profile) => {
   selectedProfile.value = profile;
   selectedSubscription.value = null;
   showNodeDetailsModal.value = true;
@@ -623,12 +633,12 @@ const handleDirectSave = async (operationName = '操作', showNotification = tru
 };
 
 // 处理订阅开关的直接保存
-const handleSubscriptionToggle = async (subscription) => {
+const handleSubscriptionToggle = async (subscription: Subscription) => {
   subscription.enabled = !subscription.enabled;
   await handleDirectSave(`${subscription.name || '订阅'} 状态`);
 };
 
-const handleSubscriptionUpdate = async (subscriptionId) => {
+const handleSubscriptionUpdate = async (subscriptionId: string) => {
   const subscription = subscriptions.value.find(s => s.id === subscriptionId);
   if (!subscription) return;
 
@@ -649,7 +659,7 @@ const handleSubscriptionUpdate = async (subscriptionId) => {
 const handleUpdateAllSubscriptions = async () => {
   if (isUpdatingAllSubs.value) return;
 
-  const enabledSubs = subscriptions.value.filter(sub => sub.enabled && HTTP_REGEX.test(sub.url));
+  const enabledSubs = subscriptions.value.filter(sub => sub.enabled && sub.url && HTTP_REGEX.test(sub.url));
   if (enabledSubs.length === 0) {
     showToast('没有可更新的订阅', 'warning');
     return;
@@ -666,7 +676,7 @@ const handleUpdateAllSubscriptions = async () => {
       if (result.results && Array.isArray(result.results)) {
         const subsMap = new Map(subscriptions.value.map(s => [s.id, s]));
 
-        result.results.forEach(updateResult => {
+        result.results.forEach((updateResult: any) => {
           if (updateResult.success) {
             const sub = subsMap.get(updateResult.id);
             if (sub) {
@@ -681,7 +691,7 @@ const handleUpdateAllSubscriptions = async () => {
         });
       }
 
-      const successCount = result.results ? result.results.filter(r => r.success).length : enabledSubs.length;
+      const successCount = result.results ? result.results.filter((r: any) => r.success).length : enabledSubs.length;
       showToast(`成功更新了 ${successCount} 个订阅`, 'success');
       await handleDirectSave('订阅更新', false); // 不显示重复通知
     } else {
@@ -726,14 +736,14 @@ const handleSaveSortChanges = async () => {
   }
 };
 
-const handleSubscriptionDragEnd = async (evt) => {
+const handleSubscriptionDragEnd = async () => {
   // vuedraggable 已经自动更新了 subscriptions 数组
   hasUnsavedSortChanges.value = true;
 
   // 拖拽排序完成
 };
 
-const handleNodeDragEnd = async (evt) => {
+const handleNodeDragEnd = async () => {
   // vuedraggable 已经自动更新了 manualNodes 数组
   hasUnsavedSortChanges.value = true;
 

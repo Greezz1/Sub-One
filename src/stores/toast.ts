@@ -1,10 +1,16 @@
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
 
-export const useToastStore = defineStore('toast', () => {
-  const toasts = ref([]);
+interface Toast {
+  id: string;
+  message: string;
+  type: string;
+}
 
-  function showToast(message, type = 'info', duration = 3000) {
+export const useToastStore = defineStore('toast', () => {
+  const toasts = ref<Toast[]>([]);
+
+  function showToast(message: string, type = 'info', duration = 3000) {
     const id = Date.now() + Math.random().toString(36).substr(2, 9);
     const toast = { id, message, type };
     toasts.value.push(toast);
@@ -21,7 +27,7 @@ export const useToastStore = defineStore('toast', () => {
     }
   }
 
-  function removeToast(id) {
+  function removeToast(id: string) {
     const index = toasts.value.findIndex(t => t.id === id);
     if (index !== -1) {
       toasts.value.splice(index, 1);

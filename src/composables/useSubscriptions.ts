@@ -1,18 +1,20 @@
-// FILE: src/composables/useSubscriptions.js
-import { ref, computed, watch } from 'vue';
-import { fetchNodeCount, batchUpdateNodes } from '../lib/api.js';
-import { useToastStore } from '../stores/toast.js';
+// FILE: src/composables/useSubscriptions.ts
+import { ref, computed, watch, type Ref } from 'vue';
+import { fetchNodeCount, batchUpdateNodes } from '../lib/api';
+import { useToastStore } from '../stores/toast';
 
 // 优化：预编译正则表达式，提升性能
 const HTTP_REGEX = /^https?:\/\//;
 
-export function useSubscriptions(initialSubsRef, markDirty) {
+import type { Subscription } from '../types';
+
+export function useSubscriptions(initialSubsRef: Ref<Subscription[] | null>) {
   const { showToast } = useToastStore();
-  const subscriptions = ref([]);
+  const subscriptions = ref<Subscription[]>([]);
   const subsCurrentPage = ref(1);
   const subsItemsPerPage = 6;
 
-  function initializeSubscriptions(subsData) {
+  function initializeSubscriptions(subsData: any[]) {
     subscriptions.value = (subsData || []).map(sub => ({
       ...sub,
       id: sub.id || crypto.randomUUID(),
@@ -28,8 +30,6 @@ export function useSubscriptions(initialSubsRef, markDirty) {
 
   const enabledSubscriptions = computed(() => subscriptions.value.filter(s => s.enabled));
 
-
-
   const subsTotalPages = computed(() => Math.ceil(subscriptions.value.length / subsItemsPerPage));
   const paginatedSubscriptions = computed(() => {
     const start = (subsCurrentPage.value - 1) * subsItemsPerPage;
@@ -37,14 +37,14 @@ export function useSubscriptions(initialSubsRef, markDirty) {
     return subscriptions.value.slice(start, end);
   });
 
-  function changeSubsPage(page) {
+  function changeSubsPage(page: number) {
     if (page < 1 || page > subsTotalPages.value) return;
     subsCurrentPage.value = page;
   }
 
-  async function handleUpdateNodeCount(subId, isInitialLoad = false) {
+  async function handleUpdateNodeCount(subId: string, isInitialLoad = false) {
     const subToUpdate = subscriptions.value.find(s => s.id === subId);
-    if (!subToUpdate || !HTTP_REGEX.test(subToUpdate.url)) return false;
+    if (!subToUpdate || !subToUpdate.url || !HTTP_REGEX.test(subToUpdate.url)) return false;
 
     if (!isInitialLoad) {
       subToUpdate.isUpdating = true;
@@ -63,7 +63,7 @@ export function useSubscriptions(initialSubsRef, markDirty) {
     }
   }
 
-  function addSubscription(sub) {
+  function addSubscription(sub: any) {
     subscriptions.value.unshift(sub);
     // 新增订阅时，如果当前页面未满，保持在当前页面；如果已满，跳转到第一页
     const currentPageItems = paginatedSubscriptions.value.length;
@@ -75,7 +75,7 @@ export function useSubscriptions(initialSubsRef, markDirty) {
     return handleUpdateNodeCount(sub.id); // 新增時自動更新單個
   }
 
-  function updateSubscription(updatedSub) {
+  function updateSubscription(updatedSub: any) {
     const index = subscriptions.value.findIndex(s => s.id === updatedSub.id);
     if (index !== -1) {
       if (subscriptions.value[index].url !== updatedSub.url) {
@@ -86,7 +86,7 @@ export function useSubscriptions(initialSubsRef, markDirty) {
     }
   }
 
-  function deleteSubscription(subId) {
+  function deleteSubscription(subId: string) {
     subscriptions.value = subscriptions.value.filter((s) => s.id !== subId);
     if (paginatedSubscriptions.value.length === 0 && subsCurrentPage.value > 1) {
       subsCurrentPage.value--;
@@ -100,7 +100,7 @@ export function useSubscriptions(initialSubsRef, markDirty) {
 
   // {{ AURA-X: Modify - 使用批量更新API优化批量导入. Approval: 寸止(ID:1735459200). }}
   // [优化] 批量導入使用批量更新API，减少KV写入次数
-  async function addSubscriptionsFromBulk(subs) {
+  async function addSubscriptionsFromBulk(subs: any[]) {
     subscriptions.value.unshift(...subs);
 
     // 修复分页逻辑：批量添加后跳转到第一页
@@ -119,7 +119,7 @@ export function useSubscriptions(initialSubsRef, markDirty) {
           // 优化：使用Map提升查找性能
           const subsMap = new Map(subscriptions.value.map(s => [s.id, s]));
 
-          result.results.forEach(updateResult => {
+          result.results.forEach((updateResult: any) => {
             if (updateResult.success) {
               const sub = subsMap.get(updateResult.id);
               if (sub) {
@@ -133,7 +133,7 @@ export function useSubscriptions(initialSubsRef, markDirty) {
             }
           });
 
-          const successCount = result.results.filter(r => r.success).length;
+          const successCount = result.results.filter((r: any) => r.success).length;
           showToast(`批量更新完成！成功更新 ${successCount}/${subsToUpdate.length} 个订阅`, 'success');
         } else {
           showToast(`批量更新失败: ${result.message}`, 'error');
@@ -157,7 +157,7 @@ export function useSubscriptions(initialSubsRef, markDirty) {
   }
 
   watch(initialSubsRef, (newInitialSubs) => {
-    initializeSubscriptions(newInitialSubs);
+    initializeSubscriptions(newInitialSubs || []);
   }, { immediate: true, deep: true });
 
   return {

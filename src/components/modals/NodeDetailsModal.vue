@@ -1,23 +1,36 @@
-<script setup>
+<script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { useToastStore } from '../../stores/toast.js';
-import { subscriptionParser } from '../../lib/subscription-parser.js';
+import { useToastStore } from '../../stores/toast';
+import { subscriptionParser } from '../../lib/subscription-parser';
+import type { Subscription, Profile, Node } from '../../types';
 
-const props = defineProps({
-  show: Boolean,
-  subscription: Object,
-  profile: Object,
-  allSubscriptions: Array,
-  allManualNodes: Array,
-});
+const props = defineProps<{
+  show: boolean;
+  subscription?: Subscription | { name: string; url: string; exclude?: string; nodeCount?: number } | null;
+  profile?: Profile | null;
+  allSubscriptions?: Subscription[];
+  allManualNodes?: Node[];
+}>();
 
-const emit = defineEmits(['update:show']);
+const emit = defineEmits<{
+  (e: 'update:show', value: boolean): void;
+}>();
 
-const nodes = ref([]);
+interface DisplayNode {
+  id: string;
+  name: string;
+  url: string;
+  protocol: string;
+  enabled?: boolean;
+  type?: 'manual' | 'subscription';
+  subscriptionName?: string;
+}
+
+const nodes = ref<DisplayNode[]>([]);
 const isLoading = ref(false);
 const errorMessage = ref('');
 const searchTerm = ref('');
-const selectedNodes = ref(new Set());
+const selectedNodes = ref(new Set<string>());
 
 
 const toastStore = useToastStore();
@@ -69,11 +82,19 @@ const fetchNodes = async () => {
     const content = await response.text();
     const parsedNodes = subscriptionParser.parse(content, props.subscription?.name || '');
     // Apply filtering and processing
-    nodes.value = subscriptionParser.processNodes(parsedNodes, props.subscription?.name || '', {
-      exclude: props.subscription?.exclude
+    const processedNodes = subscriptionParser.processNodes(parsedNodes, props.subscription?.name || '', {
+      exclude: (props.subscription as any).exclude
     });
 
-  } catch (error) {
+    nodes.value = processedNodes.map(n => ({
+      id: n.id,
+      name: n.name,
+      url: n.url,
+      protocol: getProtocolFromUrl(n.url),
+      enabled: true
+    }));
+
+  } catch (error: any) {
     console.error('获取节点信息失败:', error);
     errorMessage.value = `获取节点信息失败: ${error.message}`;
     toastStore.showToast('获取节点信息失败', 'error');
@@ -90,12 +111,12 @@ const fetchProfileNodes = async () => {
   errorMessage.value = '';
 
   try {
-    const profileNodes = [];
+    const profileNodes: DisplayNode[] = [];
 
     // 1. 添加手动节点
     if (props.allManualNodes) {
       const selectedManualNodes = props.allManualNodes.filter(node =>
-        props.profile.manualNodes.includes(node.id)
+        props.profile!.manualNodes.includes(node.id)
       );
 
       for (const node of selectedManualNodes) {
@@ -113,7 +134,7 @@ const fetchProfileNodes = async () => {
     // 2. 添加订阅节点
     if (props.allSubscriptions) {
       const selectedSubscriptions = props.allSubscriptions.filter(sub =>
-        props.profile.subscriptions.includes(sub.id) && sub.enabled
+        props.profile!.subscriptions.includes(sub.id) && sub.enabled
       );
 
       // 并行获取所有订阅内容，提升速度
@@ -131,8 +152,12 @@ const fetchProfileNodes = async () => {
               const parsedNodes = subscriptionParser.parse(content, subscription.name);
               // 标记来源，方便显示
               return parsedNodes.map(node => ({
-                ...node,
-                type: 'subscription',
+                id: node.id,
+                name: node.name,
+                url: node.url,
+                protocol: getProtocolFromUrl(node.url),
+                enabled: true,
+                type: 'subscription' as const,
                 subscriptionName: subscription.name
               }));
             }
@@ -149,7 +174,7 @@ const fetchProfileNodes = async () => {
 
     nodes.value = profileNodes;
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('获取订阅组节点信息失败:', error);
     errorMessage.value = `获取节点信息失败: ${error.message}`;
     toastStore.showToast('获取节点信息失败', 'error');
@@ -159,15 +184,15 @@ const fetchProfileNodes = async () => {
 };
 
 // 从URL获取协议类型 (辅助函数)
-const getProtocolFromUrl = (url) => {
+const getProtocolFromUrl = (url: string) => {
   const nodeRegex = /^(ss|ssr|vmess|vless|trojan|hysteria2?|hy|hy2|tuic|anytls|socks5):\/\//;
   const match = url.match(nodeRegex);
   return match ? match[1] : 'unknown';
 };
 
 // 获取协议图标和样式
-const getProtocolInfo = (protocol) => {
-  const protocolMap = {
+const getProtocolInfo = (protocol: string) => {
+  const protocolMap: Record<string, { icon: string; color: string; bg: string }> = {
     'ss': { icon: '🔒', color: 'text-blue-500', bg: 'bg-blue-100 dark:bg-blue-900/30' },
     'ssr': { icon: '🛡️', color: 'text-purple-500', bg: 'bg-purple-100 dark:bg-purple-900/30' },
     'vmess': { icon: '⚡', color: 'text-green-500', bg: 'bg-green-100 dark:bg-green-900/30' },
@@ -184,7 +209,7 @@ const getProtocolInfo = (protocol) => {
 };
 
 // 选择/取消选择节点
-const toggleNodeSelection = (nodeId) => {
+const toggleNodeSelection = (nodeId: string) => {
   if (selectedNodes.value.has(nodeId)) {
     selectedNodes.value.delete(nodeId);
   } else {
@@ -224,8 +249,6 @@ const refreshNodes = async () => {
   await fetchNodes();
   toastStore.showToast('节点信息已刷新', 'success');
 };
-
-
 </script>
 
 <template>
@@ -248,11 +271,12 @@ const refreshNodes = async () => {
             <div class="flex items-center justify-between">
               <div>
                 <h3 class="font-semibold text-gray-900 dark:text-gray-100">
-                  {{ subscription ? (subscription.name || '未命名订阅') : (profile.name || '未命名订阅组') }}
+                  {{ subscription ? (subscription.name || '未命名订阅') : (profile?.name || '未命名订阅组') }}
                 </h3>
                 <p class="text-sm text-gray-500 dark:text-gray-400 mt-1">
                   <span v-if="subscription">{{ subscription.url }}</span>
-                  <span v-else>包含 {{ profile.subscriptions.length }} 个订阅，{{ profile.manualNodes.length }} 个手动节点</span>
+                  <span v-else-if="profile">包含 {{ profile.subscriptions.length }} 个订阅，{{ profile.manualNodes.length }}
+                    个手动节点</span>
                 </p>
               </div>
               <div class="text-right">

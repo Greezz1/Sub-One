@@ -1,24 +1,20 @@
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue';
+import type { Node } from '../../types';
 
-const props = defineProps({
-  node: {
-    type: Object,
-    required: true
-  },
-  isBatchMode: {
-    type: Boolean,
-    default: false
-  },
-  isSelected: {
-    type: Boolean,
-    default: false
-  }
-});
+const props = defineProps < {
+  node: Node;
+  isBatchMode?: boolean;
+  isSelected?: boolean;
+} > ();
 
-const emit = defineEmits(['delete', 'edit', 'toggleSelect']);
+const emit = defineEmits < {
+  (e: 'delete'): void;
+(e: 'edit'): void;
+(e: 'toggleSelect'): void;
+}> ();
 
-const getProtocol = (url) => {
+const getProtocol = (url?: string) => {
   try {
     if (!url) return 'unknown';
     const lowerUrl = url.toLowerCase();
@@ -109,7 +105,7 @@ const protocolStyle = computed(() => {
               </p>
               <div class="flex items-center gap-2 mt-1">
                 <span class="text-xs px-2 py-1 rounded-lg border" :class="protocolStyle.style">{{ protocolStyle.text
-                  }}</span>
+                }}</span>
               </div>
             </div>
           </div>

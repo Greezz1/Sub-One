@@ -1,10 +1,33 @@
 import yaml from 'js-yaml';
 
+interface Node {
+  id: string;
+  name: string;
+  url: string;
+  protocol: string;
+  enabled: boolean;
+  type: string;
+  subscriptionName: string;
+  originalProxy?: any;
+}
+
+interface ProcessOptions {
+  exclude?: string;
+  prependSubName?: boolean;
+}
+
 /**
  * 强大的订阅解析器
  * 支持多种格式：Base64、纯文本、YAML、Clash配置等
  */
 export class SubscriptionParser {
+  supportedProtocols: string[];
+  _base64Regex: RegExp;
+  _whitespaceRegex: RegExp;
+  _newlineRegex: RegExp;
+  _nodeRegex: RegExp | null;
+  _protocolRegex: RegExp;
+
   constructor() {
     this.supportedProtocols = [
       'ss', 'ssr', 'vmess', 'vless', 'trojan',
@@ -23,7 +46,7 @@ export class SubscriptionParser {
   /**
    * 安全解码 Base64 字符串 (支持 UTF-8)
    */
-  decodeBase64(str) {
+  decodeBase64(str: string) {
     try {
       const binaryString = atob(str);
       const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
@@ -40,13 +63,13 @@ export class SubscriptionParser {
    * @param {string} subscriptionName - 订阅名称
    * @returns {Array} 解析后的节点列表
    */
-  parse(content, subscriptionName = '') {
+  parse(content: string, subscriptionName = ''): Node[] {
     if (!content || typeof content !== 'string') {
       return [];
     }
 
     // 根据内容特征选择最合适的解析方法，避免不必要的尝试
-    let methods = [];
+    let methods: (() => Node[])[] = [];
 
     // 检查是否为Base64编码
     const cleanedContent = content.replace(this._whitespaceRegex, '');
@@ -82,7 +105,7 @@ export class SubscriptionParser {
   /**
    * 解析Base64编码的内容
    */
-  parseBase64(content, subscriptionName) {
+  parseBase64(content: string, subscriptionName: string): Node[] {
     const cleanedContent = content.replace(this._whitespaceRegex, '');
 
     // 检查是否为Base64编码
@@ -101,7 +124,7 @@ export class SubscriptionParser {
       }
 
       return this.parseNodeLines(decodedLines, subscriptionName);
-    } catch (error) {
+    } catch (error: any) {
       throw new Error(`Base64解码失败: ${error.message}`);
     }
   }
@@ -109,9 +132,9 @@ export class SubscriptionParser {
   /**
    * 解析YAML格式
    */
-  parseYAML(content, subscriptionName) {
+  parseYAML(content: string, subscriptionName: string): Node[] {
     try {
-      const parsed = yaml.load(content);
+      const parsed: any = yaml.load(content);
       if (!parsed || typeof parsed !== 'object') {
         throw new Error('无效的YAML格式');
       }
@@ -127,7 +150,7 @@ export class SubscriptionParser {
       }
 
       throw new Error('不支持的YAML格式');
-    } catch (error) {
+    } catch (error: any) {
       throw new Error(`YAML解析失败: ${error.message}`);
     }
   }
@@ -135,15 +158,15 @@ export class SubscriptionParser {
   /**
    * 解析Clash配置文件
    */
-  parseClashConfig(content, subscriptionName) {
+  parseClashConfig(content: string, subscriptionName: string): Node[] {
     try {
-      const parsed = yaml.load(content);
+      const parsed: any = yaml.load(content);
       if (!parsed || !parsed.proxies || !Array.isArray(parsed.proxies)) {
         throw new Error('不是有效的Clash配置');
       }
 
       return this.parseClashProxies(parsed.proxies, subscriptionName);
-    } catch (error) {
+    } catch (error: any) {
       throw new Error(`Clash配置解析失败: ${error.message}`);
     }
   }
@@ -151,7 +174,7 @@ export class SubscriptionParser {
   /**
    * 解析纯文本格式
    */
-  parsePlainText(content, subscriptionName) {
+  parsePlainText(content: string, subscriptionName: string): Node[] {
     const lines = content.split(this._newlineRegex).filter(line => line.trim() !== '');
     const nodeLines = lines.filter(line => this.isNodeUrl(line));
 
@@ -165,8 +188,8 @@ export class SubscriptionParser {
   /**
    * 解析Clash代理配置
    */
-  parseClashProxies(proxies, subscriptionName) {
-    const nodes = [];
+  parseClashProxies(proxies: any[], subscriptionName: string): Node[] {
+    const nodes: Node[] = [];
 
     for (const proxy of proxies) {
       if (!proxy || typeof proxy !== 'object') continue;
@@ -197,7 +220,7 @@ export class SubscriptionParser {
   /**
    * 将Clash代理配置转换为节点URL
    */
-  convertClashProxyToUrl(proxy) {
+  convertClashProxyToUrl(proxy: any) {
     const type = proxy.type?.toLowerCase();
     const server = proxy.server;
     const port = proxy.port;
@@ -231,7 +254,7 @@ export class SubscriptionParser {
   /**
    * 构建VMess URL
    */
-  buildVmessUrl(proxy) {
+  buildVmessUrl(proxy: any) {
     const config = {
       v: '2',
       ps: proxy.name || 'VMess节点',
@@ -254,7 +277,7 @@ export class SubscriptionParser {
   /**
    * 构建VLESS URL
    */
-  buildVlessUrl(proxy) {
+  buildVlessUrl(proxy: any) {
     let url = `vless://${proxy.uuid}@${proxy.server}:${proxy.port}`;
 
     // 优化：使用数组构建查询参数，提升性能
@@ -298,7 +321,7 @@ export class SubscriptionParser {
   /**
    * 构建Trojan URL
    */
-  buildTrojanUrl(proxy) {
+  buildTrojanUrl(proxy: any) {
     let url = `trojan://${proxy.password}@${proxy.server}:${proxy.port}`;
 
     if (proxy.sni) {
@@ -315,7 +338,7 @@ export class SubscriptionParser {
   /**
    * 构建Shadowsocks URL
    */
-  buildShadowsocksUrl(proxy) {
+  buildShadowsocksUrl(proxy: any) {
     const method = proxy.cipher;
     const password = proxy.password;
     const server = proxy.server;
@@ -335,7 +358,7 @@ export class SubscriptionParser {
   /**
    * 构建ShadowsocksR URL
    */
-  buildShadowsocksRUrl(proxy) {
+  buildShadowsocksRUrl(proxy: any) {
     // SSR URL格式比较复杂，这里提供基础实现
     // 优化：使用数组构建配置，提升性能
     const config = [
@@ -351,7 +374,7 @@ export class SubscriptionParser {
     const query = new URLSearchParams();
 
     // 批量设置参数，减少条件判断
-    const params = [
+    const params: [string, any][] = [
       ['protoparam', proxy['protocol-param']],
       ['obfsparam', proxy['obfs-param']],
       ['remarks', proxy.name]
@@ -376,14 +399,14 @@ export class SubscriptionParser {
   /**
    * 构建Hysteria URL
    */
-  buildHysteriaUrl(proxy) {
+  buildHysteriaUrl(proxy: any) {
     let url = `hysteria://${proxy.server}:${proxy.port}`;
 
     // 优化：使用数组构建参数，提升性能
     const params = new URLSearchParams();
 
     // 批量设置参数，减少条件判断
-    const paramPairs = [
+    const paramPairs: [string, any][] = [
       ['protocol', proxy.protocol],
       ['sni', proxy.sni],
       ['auth', proxy.auth],
@@ -410,14 +433,14 @@ export class SubscriptionParser {
   /**
    * 构建TUIC URL
    */
-  buildTUICUrl(proxy) {
+  buildTUICUrl(proxy: any) {
     let url = `tuic://${proxy.uuid}:${proxy.password}@${proxy.server}:${proxy.port}`;
 
     // 优化：使用数组构建参数，提升性能
     const params = new URLSearchParams();
 
     // 批量设置参数，减少条件判断
-    const paramPairs = [
+    const paramPairs: [string, any][] = [
       ['sni', proxy.sni],
       ['alpn', proxy.alpn]
     ];
@@ -442,7 +465,7 @@ export class SubscriptionParser {
   /**
    * 构建Socks5 URL
    */
-  buildSocks5Url(proxy) {
+  buildSocks5Url(proxy: any) {
     let url = `socks5://`;
 
     if (proxy.username && proxy.password) {
@@ -461,7 +484,7 @@ export class SubscriptionParser {
   /**
    * 解析通用节点格式
    */
-  parseGenericNodes(nodes, subscriptionName) {
+  parseGenericNodes(nodes: any[], subscriptionName: string): Node[] {
     return nodes.map(node => ({
       id: crypto.randomUUID(),
       name: node.name || '未命名节点',
@@ -476,17 +499,17 @@ export class SubscriptionParser {
   /**
    * 解析节点链接行
    */
-  parseNodeLines(lines, subscriptionName) {
+  parseNodeLines(lines: string[], subscriptionName: string): Node[] {
     return lines
       .filter(line => this.isNodeUrl(line))
       .map(line => this.parseNodeLine(line, subscriptionName))
-      .filter(node => node !== null);
+      .filter((node): node is Node => node !== null);
   }
 
   /**
    * 解析单行节点信息
    */
-  parseNodeLine(line, subscriptionName) {
+  parseNodeLine(line: string, subscriptionName: string): Node | null {
     // 优化：延迟初始化并缓存正则表达式，避免重复创建
     if (!this._nodeRegex) {
       this._nodeRegex = new RegExp(`^(${this.supportedProtocols.join('|')}):\/\/`);
@@ -525,7 +548,7 @@ export class SubscriptionParser {
   /**
    * 从URL中提取节点名称
    */
-  extractNodeNameFromUrl(url) {
+  extractNodeNameFromUrl(url: string) {
     try {
       const protocol = url.match(this._protocolRegex)?.[1] || '';
 
@@ -554,7 +577,7 @@ export class SubscriptionParser {
             const ssMatch = url.match(/ss:\/\/([^#]+)/);
             if (ssMatch) {
               const decoded = this.decodeBase64(ssMatch[1]);
-              const [auth, server] = decoded.split('@');
+              const [, server] = decoded.split('@');
               return server.split(':')[0] || 'SS节点';
             }
           } catch {
@@ -580,7 +603,7 @@ export class SubscriptionParser {
   /**
    * 检查是否为节点URL
    */
-  isNodeUrl(line) {
+  isNodeUrl(line: string) {
     // 优化：延迟初始化并缓存正则表达式，避免重复创建
     if (!this._nodeRegex) {
       this._nodeRegex = new RegExp(`^(${this.supportedProtocols.join('|')}):\/\/`);
@@ -598,7 +621,7 @@ export class SubscriptionParser {
   /**
    * 验证订阅内容格式
    */
-  validateContent(content) {
+  validateContent(content: string) {
     if (!content || typeof content !== 'string') {
       return { valid: false, format: 'unknown', error: '内容为空或格式错误' };
     }
@@ -611,7 +634,7 @@ export class SubscriptionParser {
       }
 
       // 检查是否为YAML
-      const parsed = yaml.load(content);
+      const parsed: any = yaml.load(content);
       if (parsed && typeof parsed === 'object') {
         if (parsed.proxies && Array.isArray(parsed.proxies)) {
           return { valid: true, format: 'clash' };
@@ -627,14 +650,14 @@ export class SubscriptionParser {
       }
 
       return { valid: false, format: 'unknown', error: '无法识别的格式' };
-    } catch (error) {
+    } catch (error: any) {
       return { valid: false, format: 'unknown', error: error.message };
     }
   }
   /**
    * 处理节点：过滤和重命名
    */
-  processNodes(nodes, subName, options = {}) {
+  processNodes(nodes: Node[], subName: string, options: ProcessOptions = {}): Node[] {
     let processed = nodes;
 
     // 1. 处理 Include/Exclude 规则
@@ -644,7 +667,7 @@ export class SubscriptionParser {
 
       if (keepRules.length > 0) {
         // 白名单模式
-        const nameRegexParts = [];
+        const nameRegexParts: string[] = [];
         const protocolsToKeep = new Set();
         keepRules.forEach(rule => {
           const content = rule.substring(5).trim(); // 'keep:'.length
@@ -664,7 +687,7 @@ export class SubscriptionParser {
       } else {
         // 黑名单模式
         const protocolsToExclude = new Set();
-        const nameRegexParts = [];
+        const nameRegexParts: string[] = [];
         rules.forEach(rule => {
           if (rule.toLowerCase().startsWith('proto:')) {
             rule.substring(6).split(',').forEach(p => protocolsToExclude.add(p.trim().toLowerCase()));
@@ -701,4 +724,4 @@ export class SubscriptionParser {
 }
 
 // 导出单例实例
-export const subscriptionParser = new SubscriptionParser(); 
+export const subscriptionParser = new SubscriptionParser();

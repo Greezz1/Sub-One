@@ -1,17 +1,19 @@
-// FILE: src/composables/useManualNodes.js
-import { ref, computed, watch } from 'vue';
-import { useToastStore } from '../stores/toast.js'; // 引入 Toast
+// FILE: src/composables/useManualNodes.ts
+import { ref, computed, watch, type Ref } from 'vue';
+import { useToastStore } from '../stores/toast'; // 引入 Toast
 
-export function useManualNodes(initialNodesRef, markDirty) {
+import type { Node } from '../types';
+
+export function useManualNodes(initialNodesRef: Ref<Node[] | null>) {
   const { showToast } = useToastStore(); // 获取 showToast 函数
-  const manualNodes = ref([]);
+  const manualNodes = ref<Node[]>([]);
   const manualNodesCurrentPage = ref(1);
   const manualNodesPerPage = 24;
 
   const searchTerm = ref('');
 
   // 国家/地区代码到旗帜和中文名称的映射
-  const countryCodeMap = {
+  const countryCodeMap: Record<string, string[]> = {
     'hk': ['🇭🇰', '香港'],
     'tw': ['🇹🇼', '台湾', '臺灣'],
     'sg': ['🇸🇬', '新加坡', '狮城'],
@@ -68,7 +70,7 @@ export function useManualNodes(initialNodesRef, markDirty) {
     'nz': ['🇳🇿', '新西兰', '紐西蘭'],
   };
 
-  function initializeManualNodes(nodesData) {
+  function initializeManualNodes(nodesData: any[]) {
     manualNodes.value = (nodesData || []).map(node => ({
       ...node,
       id: node.id || crypto.randomUUID(),
@@ -82,25 +84,25 @@ export function useManualNodes(initialNodesRef, markDirty) {
       return manualNodes.value;
     }
     const lowerCaseSearch = searchTerm.value.toLowerCase();
-    
+
     // 获取可能的替代搜索词
     const alternativeTerms = countryCodeMap[lowerCaseSearch] || [];
-    
+
     return manualNodes.value.filter(node => {
       const nodeNameLower = node.name ? node.name.toLowerCase() : '';
-      
+
       // 检查节点名称是否包含原始搜索词
       if (nodeNameLower.includes(lowerCaseSearch)) {
         return true;
       }
-      
+
       // 检查节点名称是否包含任何替代词
       for (const altTerm of alternativeTerms) {
         if (nodeNameLower.includes(altTerm.toLowerCase())) {
           return true;
         }
       }
-      
+
       return false;
     });
   });
@@ -112,15 +114,15 @@ export function useManualNodes(initialNodesRef, markDirty) {
     const end = start + manualNodesPerPage;
     return filteredManualNodes.value.slice(start, end);
   });
-  
+
   const enabledManualNodes = computed(() => manualNodes.value.filter(n => n.enabled));
 
-  function changeManualNodesPage(page) {
+  function changeManualNodesPage(page: number) {
     if (page < 1 || page > manualNodesTotalPages.value) return;
     manualNodesCurrentPage.value = page;
-  }  
+  }
 
-  function addNode(node) {
+  function addNode(node: any) {
     manualNodes.value.unshift(node);
     // 修复分页逻辑：只有在当前页面已满时才跳转到第一页
     const currentPageItems = paginatedManualNodes.value.length;
@@ -129,14 +131,14 @@ export function useManualNodes(initialNodesRef, markDirty) {
     }
   }
 
-  function updateNode(updatedNode) {
+  function updateNode(updatedNode: any) {
     const index = manualNodes.value.findIndex(n => n.id === updatedNode.id);
     if (index !== -1) {
       manualNodes.value[index] = updatedNode;
     }
   }
 
-  function deleteNode(nodeId) {
+  function deleteNode(nodeId: string) {
     manualNodes.value = manualNodes.value.filter(n => n.id !== nodeId);
     if (paginatedManualNodes.value.length === 0 && manualNodesCurrentPage.value > 1) {
       manualNodesCurrentPage.value--;
@@ -148,32 +150,32 @@ export function useManualNodes(initialNodesRef, markDirty) {
     manualNodesCurrentPage.value = 1;
   }
 
-  function addNodesFromBulk(nodes) {
+  function addNodesFromBulk(nodes: any[]) {
     manualNodes.value.unshift(...nodes);
     // 修复分页逻辑：批量添加后跳转到第一页
     manualNodesCurrentPage.value = 1;
   }
-  const getUniqueKey = (url) => {
+  const getUniqueKey = (url: string) => {
     try {
       if (url.startsWith('vmess://')) {
         const base64Part = url.substring('vmess://'.length);
-        
+
         // 关键步骤：解码后，移除所有空白字符，解决格式不一致问题
         const decodedString = atob(base64Part);
         const cleanedString = decodedString.replace(/\s/g, ''); // 移除所有空格、换行等
-        
+
         const nodeConfig = JSON.parse(cleanedString);
-        
+
         delete nodeConfig.ps;
         delete nodeConfig.remark;
-        
+
         // 重新序列化对象，并以此作为唯一键
         // 通过排序键来确保即使字段顺序不同也能得到相同的结果
         return 'vmess://' + JSON.stringify(Object.keys(nodeConfig).sort().reduce(
-          (obj, key) => { 
-            obj[key] = nodeConfig[key]; 
+          (obj: any, key) => {
+            obj[key] = nodeConfig[key];
             return obj;
-          }, 
+          },
           {}
         ));
       }
@@ -190,18 +192,18 @@ export function useManualNodes(initialNodesRef, markDirty) {
   function deduplicateNodes() {
     const originalCount = manualNodes.value.length;
     const seenKeys = new Set();
-    const uniqueNodes = [];
+    const uniqueNodes: Node[] = [];
 
     for (const node of manualNodes.value) {
       // 使用新的、更智能的函数来生成唯一键
       const uniqueKey = getUniqueKey(node.url);
-      
+
       if (!seenKeys.has(uniqueKey)) {
         seenKeys.add(uniqueKey);
         uniqueNodes.push(node);
       }
     }
-    
+
     manualNodes.value = uniqueNodes;
     const removedCount = originalCount - uniqueNodes.length;
 
@@ -214,7 +216,7 @@ export function useManualNodes(initialNodesRef, markDirty) {
 
   function autoSortNodes() {
     // 预定义区域关键词和排序顺序，提升性能
-    const regionKeywords = {
+    const regionKeywords: Record<string, RegExp[]> = {
       HK: [/香港/, /HK/, /Hong Kong/i],
       TW: [/台湾/, /TW/, /Taiwan/i],
       SG: [/新加坡/, /SG/, /狮城/, /Singapore/i],
@@ -227,16 +229,16 @@ export function useManualNodes(initialNodesRef, markDirty) {
       CA: [/加拿大/, /CA/, /Canada/i],
       AU: [/澳大利亚/, /AU/, /Australia/i]
     };
-    
+
     const regionOrder = ['HK', 'TW', 'SG', 'JP', 'US', 'KR', 'GB', 'DE', 'FR', 'CA', 'AU'];
-    
+
     // 优化：缓存区域代码，避免重复计算
     const regionCodeCache = new Map();
-    const getRegionCode = (name) => {
+    const getRegionCode = (name: string) => {
       if (regionCodeCache.has(name)) {
         return regionCodeCache.get(name);
       }
-      
+
       // 优化：使用更高效的循环结构
       const entries = Object.entries(regionKeywords);
       for (let i = 0; i < entries.length; i++) {
@@ -249,36 +251,36 @@ export function useManualNodes(initialNodesRef, markDirty) {
           }
         }
       }
-      
+
       regionCodeCache.set(name, 'ZZ');
       return 'ZZ';
     };
-    
+
     manualNodes.value.sort((a, b) => {
       const regionA = getRegionCode(a.name);
       const regionB = getRegionCode(b.name);
-      
+
       const indexA = regionOrder.indexOf(regionA);
       const indexB = regionOrder.indexOf(regionB);
-      
+
       const effectiveIndexA = indexA === -1 ? Infinity : indexA;
       const effectiveIndexB = indexB === -1 ? Infinity : indexB;
-      
+
       if (effectiveIndexA !== effectiveIndexB) {
         return effectiveIndexA - effectiveIndexB;
       }
-      
+
       return a.name.localeCompare(b.name, 'zh-CN');
     });
   }
 
-    // [新增] 监听搜索词变化，重置分页
+  // [新增] 监听搜索词变化，重置分页
   watch(searchTerm, () => {
     manualNodesCurrentPage.value = 1;
   });
 
   watch(initialNodesRef, (newInitialNodes) => {
-    initializeManualNodes(newInitialNodes);
+    initializeManualNodes(newInitialNodes || []);
   }, { immediate: true, deep: true });
 
   return {

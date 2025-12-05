@@ -1,26 +1,26 @@
-<script setup>
+<script setup lang="ts">
 import { computed } from 'vue';
+import type { Profile, Subscription } from '../../types';
 
-const props = defineProps({
-  profile: {
-    type: Object,
-    required: true
-  },
-  allSubscriptions: {
-    type: Array,
-    default: () => []
-  },
-  isBatchMode: {
-    type: Boolean,
-    default: false
-  },
-  isSelected: {
-    type: Boolean,
-    default: false
-  }
+const props = withDefaults(defineProps<{
+  profile: Profile;
+  allSubscriptions?: Subscription[];
+  isBatchMode?: boolean;
+  isSelected?: boolean;
+}>(), {
+  allSubscriptions: () => [],
+  isBatchMode: false,
+  isSelected: false
 });
 
-const emit = defineEmits(['delete', 'change', 'edit', 'copy-link', 'showNodes', 'toggleSelect']);
+const emit = defineEmits<{
+  (e: 'delete'): void;
+  (e: 'change', profile: Profile): void;
+  (e: 'edit'): void;
+  (e: 'copy-link'): void;
+  (e: 'showNodes'): void;
+  (e: 'toggleSelect'): void;
+}>();
 
 // 计算实际的节点数量
 const totalNodeCount = computed(() => {
@@ -106,7 +106,8 @@ const totalNodeCount = computed(() => {
     <div class="flex justify-between items-center mt-4 pt-3 border-t border-gray-200 dark:border-gray-700">
       <label class="relative inline-flex items-center cursor-pointer">
         <input type="checkbox" :checked="profile.enabled"
-          @change="$emit('change', { ...profile, enabled: $event.target.checked })" class="sr-only peer">
+          @change="$emit('change', { ...profile, enabled: ($event.target as HTMLInputElement).checked })"
+          class="sr-only peer">
         <div
           class="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-700 peer-checked:after:translate-x-5 peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all dark:border-gray-600 peer-checked:bg-gradient-to-r from-indigo-500 to-purple-600">
         </div>

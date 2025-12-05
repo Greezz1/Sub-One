@@ -1,18 +1,29 @@
-<script setup>
+<script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { useThemeStore } from '../../stores/theme.js';
-import { useLayoutStore } from '../../stores/layout.js';
+import { useThemeStore } from '../../stores/theme';
+import { useLayoutStore } from '../../stores/layout';
 
-const props = defineProps({
-  modelValue: { type: String, required: true },
-  subscriptionsCount: { type: Number, default: 0 },
-  profilesCount: { type: Number, default: 0 },
-  manualNodesCount: { type: Number, default: 0 },
-  generatorCount: { type: Number, default: 0 },
-  isLoggedIn: { type: Boolean, default: false }
+const props = withDefaults(defineProps<{
+  modelValue: string;
+  subscriptionsCount?: number;
+  profilesCount?: number;
+  manualNodesCount?: number;
+  generatorCount?: number;
+  isLoggedIn?: boolean;
+}>(), {
+  subscriptionsCount: 0,
+  profilesCount: 0,
+  manualNodesCount: 0,
+  generatorCount: 0,
+  isLoggedIn: false
 });
 
-const emit = defineEmits(['update:modelValue', 'logout', 'help', 'settings']);
+const emit = defineEmits<{
+  (e: 'update:modelValue', value: string): void;
+  (e: 'logout'): void;
+  (e: 'help'): void;
+  (e: 'settings'): void;
+}>();
 
 const themeStore = useThemeStore();
 const layoutStore = useLayoutStore();
@@ -20,7 +31,17 @@ const layoutStore = useLayoutStore();
 const isCollapsed = ref(false);
 const isMobileMenuOpen = ref(false);
 
-const navigationItems = computed(() => [
+interface NavigationItem {
+  id: string;
+  label: string;
+  icon: string;
+  gradient: string;
+  shadow: string;
+  description: string;
+  count?: number;
+}
+
+const navigationItems = computed<NavigationItem[]>(() => [
   {
     id: 'dashboard',
     label: '仪表盘',
@@ -87,7 +108,7 @@ const utilityItems = computed(() => [
   }
 ]);
 
-const selectTab = (tabId) => {
+const selectTab = (tabId: string) => {
   if (tabId === 'help') {
     emit('help');
     // 在移动端选择后关闭菜单
@@ -252,7 +273,7 @@ onUnmounted(() => {
                   <span class="nav-item-label">{{ item.label }}</span>
                 </div>
 
-                <div v-if="item.count > 0" class="nav-item-badge">
+                <div v-if="item.count && item.count > 0" class="nav-item-badge">
                   {{ item.count }}
                 </div>
               </div>

@@ -1,9 +1,9 @@
-<script setup>
-import { useToastStore } from '../../stores/toast.js';
+<script setup lang="ts">
+import { useToastStore } from '../../stores/toast';
 
 const toastStore = useToastStore();
 
-const getToastStyle = (type) => {
+const getToastStyle = (type: string) => {
   switch (type) {
     case 'success':
       return {
@@ -42,34 +42,30 @@ const getToastStyle = (type) => {
 </script>
 
 <template>
-  <div class="fixed top-5 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-3 pointer-events-none w-full max-w-sm px-4">
+  <div
+    class="fixed top-5 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-3 pointer-events-none w-full max-w-sm px-4">
     <TransitionGroup name="toast-list">
-      <div
-        v-for="toast in toastStore.toasts"
-        :key="toast.id"
+      <div v-for="toast in toastStore.toasts" :key="toast.id"
         class="pointer-events-auto w-full p-4 rounded-lg shadow-lg border border-gray-100 dark:border-gray-700 flex items-start gap-3 transform transition-all duration-300 hover:scale-[1.02]"
         :class="[
           getToastStyle(toast.type).bg,
           getToastStyle(toast.type).border
-        ]"
-      >
+        ]">
         <!-- 图标 -->
         <div class="flex-shrink-0 mt-0.5" :class="getToastStyle(toast.type).iconColor">
           <svg class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" :d="getToastStyle(toast.type).icon" />
           </svg>
         </div>
-        
+
         <!-- 消息内容 -->
         <div class="flex-1 min-w-0">
           <p class="font-medium text-sm leading-5" :class="getToastStyle(toast.type).text">{{ toast.message }}</p>
         </div>
-        
+
         <!-- 关闭按钮 -->
-        <button 
-          @click="toastStore.removeToast(toast.id)"
-          class="flex-shrink-0 -mr-1 -mt-1 p-1 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors"
-        >
+        <button @click="toastStore.removeToast(toast.id)"
+          class="flex-shrink-0 -mr-1 -mt-1 p-1 rounded-md text-gray-400 hover:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700 transition-colors">
           <svg class="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
             <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
           </svg>

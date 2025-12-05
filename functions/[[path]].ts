@@ -1,3 +1,4 @@
+/// <reference types="@cloudflare/workers-types" />
 
 import yaml from 'js-yaml';
 
@@ -9,13 +10,17 @@ const COOKIE_NAME = 'auth_session';
 const SESSION_DURATION = 8 * 60 * 60 * 1000;
 
 
+interface Env {
+    SUB_ONE_KV: KVNamespace;
+    ADMIN_PASSWORD?: string;
+}
 
 /**
  * 计算数据的简单哈希值，用于检测变更
  * @param {any} data - 要计算哈希的数据
  * @returns {string} - 数据的哈希值
  */
-function calculateDataHash(data) {
+function calculateDataHash(data: any): string {
     const jsonString = JSON.stringify(data, Object.keys(data).sort());
     let hash = 0;
     for (let i = 0; i < jsonString.length; i++) {
@@ -32,7 +37,7 @@ function calculateDataHash(data) {
  * @param {any} newData - 新数据
  * @returns {boolean} - 是否发生变更
  */
-function hasDataChanged(oldData, newData) {
+function hasDataChanged(oldData: any, newData: any): boolean {
     if (!oldData && !newData) return false;
     if (!oldData || !newData) return true;
     return calculateDataHash(oldData) !== calculateDataHash(newData);
@@ -46,7 +51,7 @@ function hasDataChanged(oldData, newData) {
  * @param {any} oldData - 旧数据（可选）
  * @returns {Promise<boolean>} - 是否执行了写入操作
  */
-async function conditionalKVPut(env, key, newData, oldData = null) {
+async function conditionalKVPut(env: Env, key: string, newData: any, oldData: any = null): Promise<boolean> {
     if (oldData === null) {
         try {
             oldData = await env.SUB_ONE_KV.get(key, 'json');
@@ -75,7 +80,7 @@ const defaultSettings = {
     NotifyThresholdPercent: 90
 };
 
-const formatBytes = (bytes, decimals = 2) => {
+const formatBytes = (bytes: number, decimals = 2) => {
     if (!+bytes || bytes < 0) return '0 B';
     const k = 1024;
     const dm = decimals < 0 ? 0 : decimals;
@@ -87,7 +92,7 @@ const formatBytes = (bytes, decimals = 2) => {
 };
 
 // --- TG 通知函式 (无修改) ---
-async function sendTgNotification(settings, message) {
+async function sendTgNotification(settings: any, message: string) {
     if (!settings.BotToken || !settings.ChatID) {
         console.log("TG BotToken or ChatID not set, skipping notification.");
         return false;
@@ -124,7 +129,7 @@ async function sendTgNotification(settings, message) {
     }
 }
 
-async function handleCronTrigger(env) {
+async function handleCronTrigger(env: Env) {
     console.log("Cron trigger fired. Checking all subscriptions for traffic and node count...");
     const originalSubs = await env.SUB_ONE_KV.get(KV_KEY_SUBS, 'json') || [];
     const allSubs = JSON.parse(JSON.stringify(originalSubs)); // 深拷贝以便比较
@@ -141,16 +146,16 @@ async function handleCronTrigger(env) {
                     headers: { 'User-Agent': 'Clash for Windows/0.20.39' },
                     redirect: "follow",
                     cf: { insecureSkipVerify: true }
-                }));
+                } as any));
                 const nodeCountRequest = fetch(new Request(sub.url, {
                     headers: { 'User-Agent': 'Sub-One-Cron-Updater/1.0' },
                     redirect: "follow",
                     cf: { insecureSkipVerify: true }
-                }));
+                } as any));
                 const [trafficResult, nodeCountResult] = await Promise.allSettled([
                     Promise.race([trafficRequest, new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))]),
                     Promise.race([nodeCountRequest, new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 8000))])
-                ]);
+                ]) as [PromiseSettledResult<Response>, PromiseSettledResult<Response>];
 
                 if (trafficResult.status === 'fulfilled' && trafficResult.value.ok) {
                     const userInfoHeader = trafficResult.value.headers.get('subscription-userinfo');
@@ -186,8 +191,8 @@ async function handleCronTrigger(env) {
                     // 方法2: 嘗試 YAML 解析 (Clash 配置)
                     if (nodeCount === 0) {
                         try {
-                            const yamlContent = yaml.load(text);
-                            if (yamlContent && yamlContent.proxies && Array.isArray(yamlContent.proxies)) {
+                            const yamlContent = yaml.load(text) as any;
+                            if (yamlContent && typeof yamlContent === 'object' && yamlContent.proxies && Array.isArray(yamlContent.proxies)) {
                                 nodeCount = yamlContent.proxies.length;
                                 console.log(`Cron: Parsed Clash config for ${sub.name}, found ${nodeCount} proxies`);
                             }
@@ -212,7 +217,7 @@ async function handleCronTrigger(env) {
                     console.error(`Cron: Failed to fetch node list for ${sub.name}:`, nodeCountResult.reason.message);
                 }
 
-            } catch (e) {
+            } catch (e: any) {
                 console.error(`Cron: Unhandled error while updating ${sub.name}`, e.message);
             }
         }
@@ -228,7 +233,7 @@ async function handleCronTrigger(env) {
 }
 
 // --- 认证与API处理的核心函数 (无修改) ---
-async function authMiddleware(request, env) {
+async function authMiddleware(request: Request, env: Env) {
     const cookie = request.headers.get('Cookie');
     const sessionCookie = cookie?.split(';').find(c => c.trim().startsWith(`${COOKIE_NAME}=`));
     if (!sessionCookie) return false;
@@ -245,7 +250,7 @@ async function authMiddleware(request, env) {
 // sub: 要检查的订阅对象
 // settings: 全局设置
 // env: Cloudflare 环境
-async function checkAndNotify(sub, settings, env) {
+async function checkAndNotify(sub: any, settings: any, env: Env) {
     if (!sub.userInfo) return; // 没有流量信息，无法检查
 
     const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -254,7 +259,7 @@ async function checkAndNotify(sub, settings, env) {
     // 1. 检查订阅到期
     if (sub.userInfo.expire) {
         const expiryDate = new Date(sub.userInfo.expire * 1000);
-        const daysRemaining = Math.ceil((expiryDate - now) / ONE_DAY_MS);
+        const daysRemaining = Math.ceil((expiryDate.getTime() - now) / ONE_DAY_MS);
 
         // 检查是否满足通知条件：剩余天数 <= 阈值
         if (daysRemaining <= (settings.NotifyThresholdDays || 7)) {
@@ -291,7 +296,7 @@ async function checkAndNotify(sub, settings, env) {
 
 
 // --- 主要 API 請求處理 ---
-async function handleApiRequest(request, env) {
+async function handleApiRequest(request: Request, env: Env) {
     const url = new URL(request.url);
     const path = url.pathname.replace(/^\/api/, '');
     // [新增] 安全的、可重复执行的迁移接口
@@ -314,7 +319,7 @@ async function handleApiRequest(request, env) {
             await env.SUB_ONE_KV.delete(OLD_KV_KEY);
 
             return new Response(JSON.stringify({ success: true, message: '数据迁移成功！' }), { status: 200 });
-        } catch (e) {
+        } catch (e: any) {
             console.error('[API Error /migrate]', e);
             return new Response(JSON.stringify({ success: false, message: `迁移失败: ${e.message}` }), { status: 500 });
         }
@@ -323,7 +328,7 @@ async function handleApiRequest(request, env) {
     if (path === '/login') {
         if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
         try {
-            const { password } = await request.json();
+            const { password } = await request.json() as any;
             if (password === env.ADMIN_PASSWORD) {
                 const token = String(Date.now()); // 简单的基于时间戳的token
                 const headers = new Headers({ 'Content-Type': 'application/json' });
@@ -331,7 +336,7 @@ async function handleApiRequest(request, env) {
                 return new Response(JSON.stringify({ success: true }), { headers });
             }
             return new Response(JSON.stringify({ error: '密码错误' }), { status: 401 });
-        } catch (e) {
+        } catch (e: any) {
             console.error('[API Error /login]', e);
             return new Response(JSON.stringify({ error: '请求体解析失败' }), { status: 400 });
         }
@@ -352,7 +357,7 @@ async function handleApiRequest(request, env) {
                 const [subs, profiles, settings] = await Promise.all([
                     env.SUB_ONE_KV.get(KV_KEY_SUBS, 'json').then(res => res || []),
                     env.SUB_ONE_KV.get(KV_KEY_PROFILES, 'json').then(res => res || []),
-                    env.SUB_ONE_KV.get(KV_KEY_SETTINGS, 'json').then(res => res || {})
+                    env.SUB_ONE_KV.get(KV_KEY_SETTINGS, 'json').then(res => res || {} as any)
                 ]);
                 const config = {
                     FileName: settings.FileName || 'SUB_ONE',
@@ -371,7 +376,7 @@ async function handleApiRequest(request, env) {
                 // 步骤1: 解析请求体
                 let requestData;
                 try {
-                    requestData = await request.json();
+                    requestData = await request.json() as any;
                 } catch (parseError) {
                     console.error('[API Error /subs] JSON解析失败:', parseError);
                     return new Response(JSON.stringify({
@@ -431,7 +436,7 @@ async function handleApiRequest(request, env) {
                         env.SUB_ONE_KV.put(KV_KEY_SUBS, JSON.stringify(subs)),
                         env.SUB_ONE_KV.put(KV_KEY_PROFILES, JSON.stringify(profiles))
                     ]);
-                } catch (kvError) {
+                } catch (kvError: any) {
                     console.error('[API Error /subs] KV存储写入失败:', kvError);
                     return new Response(JSON.stringify({
                         success: false,
@@ -444,7 +449,7 @@ async function handleApiRequest(request, env) {
                     message: '订阅源及订阅组已保存'
                 }));
 
-            } catch (e) {
+            } catch (e: any) {
                 console.error('[API Error /subs] 未预期的错误:', e);
                 return new Response(JSON.stringify({
                     success: false,
@@ -455,24 +460,24 @@ async function handleApiRequest(request, env) {
 
         case '/node_count': {
             if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
-            const { url: subUrl } = await request.json();
+            const { url: subUrl } = await request.json() as any;
             if (!subUrl || typeof subUrl !== 'string' || !/^https?:\/\//.test(subUrl)) {
                 return new Response(JSON.stringify({ error: 'Invalid or missing url' }), { status: 400 });
             }
 
-            const result = { count: 0, userInfo: null };
+            const result: { count: number; userInfo: any } = { count: 0, userInfo: null };
 
             try {
                 const fetchOptions = {
                     headers: { 'User-Agent': 'Sub-One-Node-Counter/2.0' },
                     redirect: "follow",
                     cf: { insecureSkipVerify: true }
-                };
+                } as any;
                 const trafficFetchOptions = {
                     headers: { 'User-Agent': 'Clash for Windows/0.20.39' },
                     redirect: "follow",
                     cf: { insecureSkipVerify: true }
-                };
+                } as any;
 
                 const trafficRequest = fetch(new Request(subUrl, trafficFetchOptions));
                 const nodeCountRequest = fetch(new Request(subUrl, fetchOptions));
@@ -517,12 +522,12 @@ async function handleApiRequest(request, env) {
                     // 方法2: 如果是YAML格式，解析Clash配置
                     if (nodeCount === 0) {
                         try {
-                            const yamlContent = yaml.load(text);
-                            if (yamlContent && yamlContent.proxies && Array.isArray(yamlContent.proxies)) {
+                            const yamlContent = yaml.load(text) as any;
+                            if (yamlContent && typeof yamlContent === 'object' && yamlContent.proxies && Array.isArray(yamlContent.proxies)) {
                                 nodeCount = yamlContent.proxies.length;
                             } else {
                             }
-                        } catch (e) {
+                        } catch (e: any) {
                             console.error('[YAML Parse] YAML parsing failed:', e.message);
                             // 继续尝试其他方法
                         }
@@ -564,7 +569,7 @@ async function handleApiRequest(request, env) {
 
         case '/fetch_external_url': { // New case
             if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
-            const { url: externalUrl } = await request.json();
+            const { url: externalUrl } = await request.json() as any;
             if (!externalUrl || typeof externalUrl !== 'string' || !/^https?:\/\//.test(externalUrl)) {
                 return new Response(JSON.stringify({ error: 'Invalid or missing url' }), { status: 400 });
             }
@@ -574,7 +579,7 @@ async function handleApiRequest(request, env) {
                     headers: { 'User-Agent': 'Sub-One-Proxy/1.0' }, // Identify as proxy
                     redirect: "follow",
                     cf: { insecureSkipVerify: true } // Allow insecure SSL for flexibility
-                }));
+                } as any));
 
                 if (!response.ok) {
                     return new Response(JSON.stringify({ error: `Failed to fetch external URL: ${response.status} ${response.statusText}` }), { status: response.status });
@@ -583,7 +588,7 @@ async function handleApiRequest(request, env) {
                 const content = await response.text();
                 return new Response(content, { headers: { 'Content-Type': 'text/plain; charset=utf-8' } });
 
-            } catch (e) {
+            } catch (e: any) {
                 console.error(`[API Error /fetch_external_url] Failed to fetch ${externalUrl}:`, e);
                 return new Response(JSON.stringify({ error: `Failed to fetch external URL: ${e.message}` }), { status: 500 });
             }
@@ -596,12 +601,12 @@ async function handleApiRequest(request, env) {
             }
 
             try {
-                const { subscriptionIds } = await request.json();
+                const { subscriptionIds } = await request.json() as any;
                 if (!Array.isArray(subscriptionIds)) {
                     return new Response(JSON.stringify({ error: 'subscriptionIds must be an array' }), { status: 400 });
                 }
 
-                const allSubs = await env.SUB_ONE_KV.get(KV_KEY_SUBS, 'json') || [];
+                const allSubs = (await env.SUB_ONE_KV.get(KV_KEY_SUBS, 'json') || []) as any[];
                 const subsToUpdate = allSubs.filter(sub => subscriptionIds.includes(sub.id) && sub.url.startsWith('http'));
 
                 console.log(`[Batch Update] Starting batch update for ${subsToUpdate.length} subscriptions`);
@@ -613,12 +618,12 @@ async function handleApiRequest(request, env) {
                             headers: { 'User-Agent': 'Sub-One-Batch-Updater/1.0' },
                             redirect: "follow",
                             cf: { insecureSkipVerify: true }
-                        };
+                        } as any;
 
                         const response = await Promise.race([
                             fetch(sub.url, fetchOptions),
                             new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
-                        ]);
+                        ]) as Response;
 
                         if (response.ok) {
                             // 更新流量信息
@@ -652,8 +657,8 @@ async function handleApiRequest(request, env) {
                             // 方法2: 如果是YAML格式，解析Clash配置
                             if (nodeCount === 0) {
                                 try {
-                                    const yamlContent = yaml.load(text);
-                                    if (yamlContent && yamlContent.proxies && Array.isArray(yamlContent.proxies)) {
+                                    const yamlContent = yaml.load(text) as any;
+                                    if (yamlContent && typeof yamlContent === 'object' && yamlContent.proxies && Array.isArray(yamlContent.proxies)) {
                                         nodeCount = yamlContent.proxies.length;
                                     }
                                 } catch (e) {
@@ -675,7 +680,7 @@ async function handleApiRequest(request, env) {
                         } else {
                             return { id: sub.id, success: false, error: `HTTP ${response.status}` };
                         }
-                    } catch (error) {
+                    } catch (error: any) {
                         return { id: sub.id, success: false, error: error.message };
                     }
                 });
@@ -696,7 +701,7 @@ async function handleApiRequest(request, env) {
                     results: updateResults
                 }), { headers: { 'Content-Type': 'application/json' } });
 
-            } catch (error) {
+            } catch (error: any) {
                 console.error('[API Error /batch_update_nodes]', error);
                 return new Response(JSON.stringify({
                     success: false,
@@ -723,7 +728,7 @@ async function handleApiRequest(request, env) {
                 try {
                     const newSettings = await request.json();
                     const oldSettings = await env.SUB_ONE_KV.get(KV_KEY_SETTINGS, 'json') || {};
-                    const finalSettings = { ...oldSettings, ...newSettings };
+                    const finalSettings = { ...oldSettings as any, ...newSettings as any };
 
                     await env.SUB_ONE_KV.put(KV_KEY_SETTINGS, JSON.stringify(finalSettings));
 
@@ -740,7 +745,7 @@ async function handleApiRequest(request, env) {
         }
         case '/latency_test': {
             if (request.method !== 'POST') return new Response('Method Not Allowed', { status: 405 });
-            const { url: testUrl } = await request.json();
+            const { url: testUrl } = await request.json() as any;
 
             if (!testUrl || typeof testUrl !== 'string' || !/^https?:\/\//.test(testUrl)) {
                 return new Response(JSON.stringify({ error: 'Invalid or missing url' }), { status: 400 });
@@ -755,9 +760,9 @@ async function handleApiRequest(request, env) {
                     method: 'HEAD', // Try HEAD first for speed
                     headers: { 'User-Agent': 'Sub-One-Latency-Tester/1.0' },
                     redirect: 'follow',
-                    cf: { insecureSkipVerify: true },
-                    signal: controller.signal
-                });
+                    signal: controller.signal,
+                    cf: { insecureSkipVerify: true }
+                } as any);
 
                 clearTimeout(timeoutId);
                 const endTime = Date.now();
@@ -779,9 +784,9 @@ async function handleApiRequest(request, env) {
                         method: 'GET',
                         headers: { 'User-Agent': 'Sub-One-Latency-Tester/1.0' },
                         redirect: 'follow',
-                        cf: { insecureSkipVerify: true },
-                        signal: controllerGet.signal
-                    });
+                        signal: controllerGet.signal,
+                        cf: { insecureSkipVerify: true }
+                    } as any);
 
                     clearTimeout(timeoutIdGet);
                     const endTimeGet = Date.now();
@@ -803,7 +808,7 @@ async function handleApiRequest(request, env) {
                     }), { headers: { 'Content-Type': 'application/json' } });
                 }
 
-            } catch (e) {
+            } catch (e: any) {
                 return new Response(JSON.stringify({
                     success: false,
                     error: e.message === 'The user aborted a request.' ? 'Timeout' : e.message
@@ -817,6 +822,13 @@ async function handleApiRequest(request, env) {
 }
 
 class SubscriptionParser {
+    supportedProtocols: string[];
+    _base64Regex: RegExp;
+    _whitespaceRegex: RegExp;
+    _newlineRegex: RegExp;
+    _nodeRegex: RegExp | null;
+    _protocolRegex: RegExp;
+
     constructor() {
         this.supportedProtocols = [
             'ss', 'ssr', 'vmess', 'vless', 'trojan',
@@ -838,7 +850,7 @@ class SubscriptionParser {
             const binaryString = atob(str);
             const bytes = Uint8Array.from(binaryString, c => c.charCodeAt(0));
             return new TextDecoder('utf-8').decode(bytes);
-        } catch (e) {
+        } catch (e: any) {
             console.warn('Base64 decoding failed:', e);
             return atob(str); // Fallback to standard atob
         }
@@ -862,7 +874,7 @@ class SubscriptionParser {
                 const json = JSON.parse(raw);
                 nodes = this.parseJSON(json);
                 if (nodes.length > 0) return this.processNodes(nodes, subscriptionName, options);
-            } catch (e) {
+            } catch (e: any) {
                 // JSON 解析失败，继续尝试其他格式
             }
         }
@@ -874,7 +886,7 @@ class SubscriptionParser {
                 const yamlContent = yaml.load(raw);
                 nodes = this.parseYAML(yamlContent);
                 if (nodes.length > 0) return this.processNodes(nodes, subscriptionName, options);
-            } catch (e) {
+            } catch (e: any) {
                 // YAML 解析失败
             }
         }
@@ -902,7 +914,7 @@ class SubscriptionParser {
                     const decodedNodes = this.parse(decoded, subscriptionName, options);
                     if (decodedNodes.length > 0) return decodedNodes;
                 }
-            } catch (e) {
+            } catch (e: any) {
                 // Base64 解码或递归解析失败
             }
         }
@@ -927,7 +939,7 @@ class SubscriptionParser {
 
     parseYAML(yamlContent) {
         if (!yamlContent) return [];
-        if (yamlContent.proxies && Array.isArray(yamlContent.proxies)) {
+        if (yamlContent && typeof yamlContent === 'object' && yamlContent.proxies && Array.isArray(yamlContent.proxies)) {
             return this.parseClashProxies(yamlContent.proxies);
         }
         return [];
@@ -938,20 +950,20 @@ class SubscriptionParser {
         return this.parseNodeLines(lines);
     }
 
-    parseNodeLines(lines) {
+    parseNodeLines(lines: any) {
         if (!this._nodeRegex) {
             this._nodeRegex = new RegExp(`^(${this.supportedProtocols.join('|')}):\/\/`);
         }
         return lines
             .map(l => l.trim())
-            .filter(line => this._nodeRegex.test(line));
+            .filter(line => this._nodeRegex!.test(line));
     }
 
-    parseClashProxies(proxies) {
+    parseClashProxies(proxies: any) {
         return proxies.map(proxy => this.convertClashProxyToUrl(proxy)).filter(url => url);
     }
 
-    convertSingBoxToUrl(proxy) {
+    convertSingBoxToUrl(proxy: any) {
         try {
             const clashProxy = {
                 name: proxy.tag || 'SingBox-Node',
@@ -963,12 +975,12 @@ class SubscriptionParser {
                 cipher: proxy.method,
             };
             return this.convertClashProxyToUrl(clashProxy);
-        } catch (e) {
+        } catch (e: any) {
             return null;
         }
     }
 
-    convertClashProxyToUrl(proxy) {
+    convertClashProxyToUrl(proxy: any) {
         if (!proxy || !proxy.server || !proxy.port) return null;
         const type = proxy.type?.toLowerCase();
 
@@ -986,14 +998,14 @@ class SubscriptionParser {
                 case 'socks5': return this.buildSocks5Url(proxy);
                 default: return null;
             }
-        } catch (e) {
+        } catch (e: any) {
             console.warn(`Failed to convert proxy ${proxy.name}:`, e);
             return null;
         }
     }
 
     // --- URL 构建辅助函数 ---
-    buildVmessUrl(proxy) {
+    buildVmessUrl(proxy: any) {
         // 1. 提取 WebSocket 相关参数 (兼容 ws-opts, ws-path, ws-headers)
         const wsPath = proxy['ws-opts']?.path || proxy['ws-path'] || proxy.path || '';
         const wsHeaders = proxy['ws-opts']?.headers || proxy['ws-headers'] || {};
@@ -1076,9 +1088,9 @@ class SubscriptionParser {
         return 'vmess://' + btoa(unescape(encodeURIComponent(JSON.stringify(config))));
     }
 
-    buildVlessUrl(proxy) {
+    buildVlessUrl(proxy: any) {
         let url = `vless://${proxy.uuid}@${proxy.server}:${proxy.port}`;
-        const params = [];
+        const params: string[] = [];
 
         // 0. Encryption (v2rayN 必须, 固定为 none)
         params.push('encryption=none');
@@ -1191,9 +1203,9 @@ class SubscriptionParser {
         return url;
     }
 
-    buildTrojanUrl(proxy) {
+    buildTrojanUrl(proxy: any) {
         let url = `trojan://${proxy.password}@${proxy.server}:${proxy.port}`;
-        const params = [];
+        const params: string[] = [];
 
         const sni = proxy.sni || proxy.servername;
         if (sni) params.push(`sni=${sni}`);
@@ -1226,7 +1238,7 @@ class SubscriptionParser {
         return url;
     }
 
-    buildShadowsocksUrl(proxy) {
+    buildShadowsocksUrl(proxy: any) {
         // Standard SS: ss://user:pass@host:port
         // SIP002: ss://base64(method:password)@host:port
         const auth = `${proxy.cipher}:${proxy.password}`;
@@ -1238,7 +1250,7 @@ class SubscriptionParser {
         // Plugin Support (SIP003)
         if (proxy.plugin) {
             let pluginName = proxy.plugin;
-            let pluginArgs = [];
+            let pluginArgs: string[] = [];
 
             // Map 'obfs' to 'obfs-local' (common convention for simple-obfs)
             if (pluginName === 'obfs') pluginName = 'obfs-local';
@@ -1280,13 +1292,13 @@ class SubscriptionParser {
         return url;
     }
 
-    buildShadowsocksRUrl(proxy) {
+    buildShadowsocksRUrl(proxy: any) {
         const config = [
             proxy.server, proxy.port, proxy.protocol || 'origin',
             proxy.cipher, proxy.obfs || 'plain',
             btoa(unescape(encodeURIComponent(proxy.password)))  // 安全编码支持特殊字符
         ].join(':');
-        const params = [];
+        const params: string[] = [];
         if (proxy['protocol-param']) params.push(`protoparam=${btoa(proxy['protocol-param'])}`);
         if (proxy['obfs-param']) params.push(`obfsparam=${btoa(proxy['obfs-param'])}`);
         if (proxy.name) params.push(`remarks=${btoa(unescape(encodeURIComponent(proxy.name)))}`);
@@ -1296,10 +1308,10 @@ class SubscriptionParser {
         return url;
     }
 
-    buildHysteriaUrl(proxy) {
+    buildHysteriaUrl(proxy: any) {
         // Hysteria 2: hysteria2://[auth@]hostname[:port]/?[key=value]&[key=value]...
         let url = `hysteria2://${proxy.auth || ''}@${proxy.server}:${proxy.port}`;
-        const params = [];
+        const params: string[] = [];
 
         const sni = proxy.sni || proxy.servername;
         if (sni) params.push(`sni=${sni}`);
@@ -1320,10 +1332,10 @@ class SubscriptionParser {
         return url;
     }
 
-    buildTUICUrl(proxy) {
+    buildTUICUrl(proxy: any) {
         // TUIC v5: tuic://UUID:PASSWORD@SERVER_ADDRESS:PORT/?congestion_control=bbr
         let url = `tuic://${proxy.uuid}:${proxy.password}@${proxy.server}:${proxy.port}`;
-        const params = [];
+        const params: string[] = [];
 
         const sni = proxy.sni || proxy.servername;
         if (sni) params.push(`sni=${sni}`);
@@ -1342,9 +1354,9 @@ class SubscriptionParser {
         return url;
     }
 
-    buildAnytlsUrl(proxy) {
+    buildAnytlsUrl(proxy: any) {
         let url = `anytls://${proxy.password}@${proxy.server}:${proxy.port}`;
-        const params = [];
+        const params: string[] = [];
 
         const sni = proxy.sni || proxy.servername;
         if (sni) params.push(`sni=${sni}`);
@@ -1360,7 +1372,7 @@ class SubscriptionParser {
         return url;
     }
 
-    buildSocks5Url(proxy) {
+    buildSocks5Url(proxy: any) {
         let url = 'socks5://';
         if (proxy.username && proxy.password) url += `${proxy.username}:${proxy.password}@`;
         url += `${proxy.server}:${proxy.port}`;
@@ -1368,7 +1380,7 @@ class SubscriptionParser {
         return url;
     }
 
-    processNodes(nodes, subName, options) {
+    processNodes(nodes: any, subName: any, options: any) {
         let processed = nodes;
 
         // 1. 处理 Include/Exclude 规则
@@ -1378,8 +1390,8 @@ class SubscriptionParser {
 
             if (keepRules.length > 0) {
                 // 白名单模式
-                const nameRegexParts = [];
-                const protocolsToKeep = new Set();
+                const nameRegexParts: string[] = [];
+                const protocolsToKeep = new Set<string>();
                 keepRules.forEach(rule => {
                     const content = rule.substring(5).trim(); // 'keep:'.length
                     if (content.toLowerCase().startsWith('proto:')) {
@@ -1401,8 +1413,8 @@ class SubscriptionParser {
                 });
             } else {
                 // 黑名单模式
-                const protocolsToExclude = new Set();
-                const nameRegexParts = [];
+                const protocolsToExclude = new Set<string>();
+                const nameRegexParts: string[] = [];
                 rules.forEach(rule => {
                     if (rule.toLowerCase().startsWith('proto:')) {
                         rule.substring(6).split(',').forEach(p => protocolsToExclude.add(p.trim().toLowerCase()));
@@ -1432,7 +1444,7 @@ class SubscriptionParser {
         return processed;
     }
 
-    extractName(link) {
+    extractName(link: any) {
         try {
             const hashIndex = link.lastIndexOf('#');
             if (hashIndex !== -1) return decodeURIComponent(link.substring(hashIndex + 1));
@@ -1445,7 +1457,7 @@ class SubscriptionParser {
         return '';
     }
 
-    prependName(link, prefix) {
+    prependName(link: any, prefix: any) {
         const appendToFragment = (baseLink, p) => {
             const hashIndex = baseLink.lastIndexOf('#');
             const originalName = hashIndex !== -1 ? decodeURIComponent(baseLink.substring(hashIndex + 1)) : '';
@@ -1493,9 +1505,9 @@ async function generateCombinedNodeList(context, config, userAgent, subs, prepen
                     headers: { 'User-Agent': userAgent },
                     redirect: "follow",
                     cf: { insecureSkipVerify: true }
-                })),
+                } as any)),
                 new Promise((_, reject) => setTimeout(() => reject(new Error('Timeout')), 10000))
-            ]);
+            ]) as Response;
 
             if (!response.ok) return [];
             const text = await response.text();
@@ -1527,7 +1539,7 @@ async function generateCombinedNodeList(context, config, userAgent, subs, prepen
 
 // --- [核心修改] 订阅处理函数 ---
 // --- [最終修正版 - 變量名校對] 訂閱處理函數 ---
-async function handleSubRequest(context) {
+async function handleSubRequest(context: EventContext<Env, any, any>) {
     const { request, env } = context;
     const url = new URL(request.url);
     const userAgentHeader = request.headers.get('User-Agent') || "Unknown";
@@ -1538,19 +1550,19 @@ async function handleSubRequest(context) {
         env.SUB_ONE_KV.get(KV_KEY_PROFILES, 'json')
     ]);
     const settings = settingsData || {};
-    const allSubs = subsData || [];
-    const allProfiles = profilesData || [];
+    const allSubs = (subsData || []) as any[];
+    const allProfiles = (profilesData || []) as any[];
     // 關鍵：我們在這裡定義了 `config`，後續都應該使用它
     const config = { ...defaultSettings, ...settings };
 
-    let token = '';
-    let profileIdentifier = null;
+    let token: string | null = '';
+    let profileIdentifier: string | null = null;
     const pathSegments = url.pathname.replace(/^\/sub\//, '/').split('/').filter(Boolean);
 
     if (pathSegments.length > 0) {
         token = pathSegments[0];
         if (pathSegments.length > 1) {
-            profileIdentifier = pathSegments[1];
+            profileIdentifier = pathSegments[1] || null;
         }
     } else {
         token = url.searchParams.get('token');
@@ -1782,7 +1794,7 @@ async function handleSubRequest(context) {
         responseHeaders.set('Cache-Control', 'no-store, no-cache');
 
         return new Response(responseText, { status: subconverterResponse.status, statusText: subconverterResponse.statusText, headers: responseHeaders });
-    } catch (error) {
+    } catch (error: any) {
         console.error(`[Sub-One Final Error] ${error.message}`);
         return new Response(`Error connecting to subconverter: ${error.message}`, { status: 502 });
     }
@@ -1799,7 +1811,7 @@ async function getCallbackToken(env) {
 
 
 // --- [核心修改] Cloudflare Pages Functions 主入口 ---
-export async function onRequest(context) {
+export async function onRequest(context: EventContext<Env, any, any>) {
     const { request, env, next } = context;
     const url = new URL(request.url);
 

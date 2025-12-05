@@ -1,24 +1,25 @@
-<script setup>
+<script setup lang="ts">
 import { ref, onMounted } from 'vue';
+import type { Subscription, Profile, Node } from '../../types';
 
-defineProps({
-  subscriptions: { type: Array, required: true },
-  activeSubscriptions: { type: Number, required: true },
-  totalNodeCount: { type: Number, required: true },
-  activeNodeCount: { type: Number, required: true },
-  profiles: { type: Array, required: true },
-  activeProfiles: { type: Number, required: true },
-  manualNodes: { type: Array, required: true },
-  activeManualNodes: { type: Number, required: true },
-  isUpdatingAllSubs: { type: Boolean, default: false }
-});
+defineProps<{
+  subscriptions: Subscription[];
+  activeSubscriptions: number;
+  totalNodeCount: number;
+  activeNodeCount: number;
+  profiles: Profile[];
+  activeProfiles: number;
+  manualNodes: Node[];
+  activeManualNodes: number;
+  isUpdatingAllSubs: boolean;
+}>();
 
-defineEmits([
-  'add-subscription',
-  'update-all-subscriptions',
-  'add-node',
-  'add-profile'
-]);
+defineEmits<{
+  (e: 'add-subscription'): void;
+  (e: 'update-all-subscriptions'): void;
+  (e: 'add-node'): void;
+  (e: 'add-profile'): void;
+}>();
 
 // 励志语录数据
 const quotes = [
@@ -221,7 +222,7 @@ onMounted(() => {
             <div>
               <p class="text-gray-600 dark:text-indigo-100 font-medium mb-1 text-sm">订阅源状态</p>
               <h3 class="text-5xl font-bold tracking-tight text-gray-900 dark:text-white">{{ subscriptions.length
-                }}<span class="text-2xl text-gray-600 dark:text-indigo-200 font-normal ml-2">个</span></h3>
+              }}<span class="text-2xl text-gray-600 dark:text-indigo-200 font-normal ml-2">个</span></h3>
             </div>
             <div class="bg-indigo-100 dark:bg-white/20 backdrop-blur-md p-2 rounded-xl">
               <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-indigo-600 dark:text-white" fill="none"

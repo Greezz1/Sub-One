@@ -1,24 +1,24 @@
-<script setup>
+<script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import Modal from './BaseModal.vue';
-import { fetchSettings, saveSettings } from '../../lib/api.js';
-import { useToastStore } from '../../stores/toast.js';
-import { useThemeStore } from '../../stores/theme.js';
+import { fetchSettings, saveSettings } from '../../lib/api';
+import { useToastStore } from '../../stores/toast';
+import type { AppConfig } from '../../types';
 
-const props = defineProps({
-  show: Boolean
-});
+const props = defineProps<{
+  show: boolean;
+}>();
 
-const emit = defineEmits(['update:show']);
+const emit = defineEmits<{
+  (e: 'update:show', value: boolean): void;
+}>();
 
 const { showToast } = useToastStore();
-const themeStore = useThemeStore();
 const isLoading = ref(false);
 const isSaving = ref(false);
 
 // 默认设置值
-// 默认设置值
-const defaultSettings = {
+const defaultSettings: AppConfig = {
   FileName: 'Sub-One',
   subConverter: 'sub.xeton.dev',
   subConfig: 'https://raw.githubusercontent.com/cmliu/ACL4SSR/refs/heads/main/Clash/config/ACL4SSR_Online_Full.ini',
@@ -30,10 +30,10 @@ const defaultSettings = {
 };
 
 // 初始化时直接使用默认值，确保界面不会显示空白
-const settings = ref({ ...defaultSettings });
+const settings = ref<AppConfig>({ ...defaultSettings });
 
 const hasWhitespace = computed(() => {
-  const fieldsToCkeck = [
+  const fieldsToCkeck: (keyof AppConfig)[] = [
     'FileName',
     'mytoken',
     'profileToken',
@@ -45,7 +45,7 @@ const hasWhitespace = computed(() => {
 
   for (const key of fieldsToCkeck) {
     const value = settings.value[key];
-    if (value && /\s/.test(value)) {
+    if (value && typeof value === 'string' && /\s/.test(value)) {
       return true;
     }
   }
@@ -62,8 +62,8 @@ const loadSettings = async () => {
       for (const key in loaded) {
         // 只有当后端返回的值不为空时才覆盖默认值
         // 这样可以防止后端返回的空字符串覆盖掉前端的默认推荐值
-        if (loaded[key] !== undefined && loaded[key] !== null && loaded[key] !== '') {
-          settings.value[key] = loaded[key];
+        if (loaded[key as keyof AppConfig] !== undefined && loaded[key as keyof AppConfig] !== null && loaded[key as keyof AppConfig] !== '') {
+          (settings.value as any)[key] = loaded[key as keyof AppConfig];
         }
       }
     }
@@ -95,7 +95,7 @@ const handleSave = async () => {
     } else {
       throw new Error(result.message || '保存失败');
     }
-  } catch (error) {
+  } catch (error: any) {
     showToast(error.message, 'error');
     isSaving.value = false; // 只有失败时才需要重置保存状态
   }

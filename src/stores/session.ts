@@ -1,11 +1,13 @@
 
 import { defineStore } from 'pinia';
 import { ref } from 'vue';
-import { fetchInitialData, login as apiLogin } from '../lib/api.js';
+import { fetchInitialData, login as apiLogin } from '../lib/api';
+
+import type { InitialData } from '../types';
 
 export const useSessionStore = defineStore('session', () => {
-  const sessionState = ref('loading'); // loading, loggedIn, loggedOut
-  const initialData = ref(null);
+  const sessionState = ref<'loading' | 'loggedIn' | 'loggedOut'>('loading'); // loading, loggedIn, loggedOut
+  const initialData = ref<InitialData | null>(null);
 
   async function checkSession() {
     try {
@@ -22,14 +24,20 @@ export const useSessionStore = defineStore('session', () => {
     }
   }
 
-  async function login(password) {
+  async function login(password: string) {
     try {
       const response = await apiLogin(password);
       if (response.ok) {
         handleLoginSuccess();
       } else {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || errorData.error || '登录失败');
+        let errorMessage = '登录失败';
+        if (response instanceof Response) {
+          const errorData = await response.json().catch(() => ({}));
+          errorMessage = errorData.message || errorData.error || errorMessage;
+        } else {
+          errorMessage = (response as any).error || errorMessage;
+        }
+        throw new Error(errorMessage);
       }
     } catch (error) {
       console.error('Login failed:', error);

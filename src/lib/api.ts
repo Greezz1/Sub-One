@@ -13,7 +13,7 @@ export async function fetchInitialData() {
     }
 }
 
-export async function login(password) {
+export async function login(password: string) {
     try {
         const response = await fetch('/api/login', {
             method: 'POST',
@@ -28,7 +28,7 @@ export async function login(password) {
 }
 
 // [核心修改] saveSubs 现在接收并发送 profiles
-export async function saveSubs(subs, profiles) {
+export async function saveSubs(subs: any[], profiles: any[]) {
     try {
         // 数据预验证
         if (!Array.isArray(subs) || !Array.isArray(profiles)) {
@@ -50,7 +50,7 @@ export async function saveSubs(subs, profiles) {
         }
 
         return await response.json();
-    } catch (error) {
+    } catch (error: any) {
         console.error('saveSubs 网络请求失败:', error);
 
         // 根据错误类型返回更具体的错误信息
@@ -64,7 +64,7 @@ export async function saveSubs(subs, profiles) {
     }
 }
 
-export async function fetchNodeCount(subUrl) {
+export async function fetchNodeCount(subUrl: string) {
     try {
         const res = await fetch('/api/node_count', {
             method: 'POST',
@@ -90,7 +90,7 @@ export async function fetchSettings() {
     }
 }
 
-export async function saveSettings(settings) {
+export async function saveSettings(settings: any) {
     try {
         const response = await fetch('/api/settings', {
             method: 'POST',
@@ -106,7 +106,7 @@ export async function saveSettings(settings) {
         }
 
         return await response.json();
-    } catch (error) {
+    } catch (error: any) {
         console.error('saveSettings 网络请求失败:', error);
 
         // 根据错误类型返回更具体的错误信息
@@ -125,7 +125,7 @@ export async function saveSettings(settings) {
  * @param {string[]} subscriptionIds - 要更新的订阅ID数组
  * @returns {Promise<Object>} - 更新结果
  */
-export async function batchUpdateNodes(subscriptionIds) {
+export async function batchUpdateNodes(subscriptionIds: string[]) {
     try {
         const response = await fetch('/api/batch_update_nodes', {
             method: 'POST',
@@ -153,7 +153,7 @@ export async function batchUpdateNodes(subscriptionIds) {
  * @param {string} url - 要测试的URL
  * @returns {Promise<Object>} - 测试结果 { success, latency, status, error }
  */
-export async function testLatency(url) {
+export async function testLatency(url: string) {
     try {
         const response = await fetch('/api/latency_test', {
             method: 'POST',

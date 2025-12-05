@@ -1,23 +1,39 @@
-<script setup>
+<script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import Modal from './BaseModal.vue';
+import type { Profile, Subscription, Node } from '../../types';
 
-const props = defineProps({
-  show: Boolean,
-  profile: Object,
-  isNew: Boolean,
-  allSubscriptions: Array,
-  allManualNodes: Array,
+const props = withDefaults(defineProps<{
+  show: boolean;
+  profile?: Profile | null;
+  isNew?: boolean;
+  allSubscriptions?: Subscription[];
+  allManualNodes?: Node[];
+}>(), {
+  isNew: false,
+  allSubscriptions: () => [],
+  allManualNodes: () => []
 });
 
-const emit = defineEmits(['update:show', 'save']);
+const emit = defineEmits<{
+  (e: 'update:show', value: boolean): void;
+  (e: 'save', profile: Profile): void;
+}>();
 
-const localProfile = ref({});
+const localProfile = ref<Profile>({
+  id: '',
+  name: '',
+  enabled: true,
+  subscriptions: [],
+  manualNodes: [],
+  customId: '',
+  expiresAt: ''
+});
 const subscriptionSearchTerm = ref('');
 const nodeSearchTerm = ref('');
 
 // 国家/地区代码到旗帜和中文名称的映射
-const countryCodeMap = {
+const countryCodeMap: Record<string, string[]> = {
   'hk': ['🇭🇰', '香港'],
   'tw': ['🇹🇼', '台湾', '臺灣'],
   'sg': ['🇸🇬', '新加坡', '狮城'],
@@ -141,7 +157,7 @@ watch(() => props.profile, (newProfile) => {
     }
     localProfile.value = profileCopy;
   } else {
-    localProfile.value = { name: '', enabled: true, subscriptions: [], manualNodes: [], customId: '', expiresAt: '' };
+    localProfile.value = { id: '', name: '', enabled: true, subscriptions: [], manualNodes: [], customId: '', expiresAt: '' };
   }
 }, { deep: true, immediate: true });
 
@@ -162,7 +178,7 @@ const handleConfirm = () => {
   emit('save', profileToSave);
 };
 
-const toggleSelection = (listName, id) => {
+const toggleSelection = (listName: 'subscriptions' | 'manualNodes', id: string) => {
   const list = localProfile.value[listName];
   const index = list.indexOf(id);
   if (index > -1) {
@@ -172,13 +188,13 @@ const toggleSelection = (listName, id) => {
   }
 };
 
-const handleSelectAll = (listName, sourceArray) => {
+const handleSelectAll = (listName: 'subscriptions' | 'manualNodes', sourceArray: { id: string }[]) => {
   const currentSelection = new Set(localProfile.value[listName]);
   sourceArray.forEach(item => currentSelection.add(item.id));
   localProfile.value[listName] = Array.from(currentSelection);
 };
 
-const handleDeselectAll = (listName, sourceArray) => {
+const handleDeselectAll = (listName: 'subscriptions' | 'manualNodes', sourceArray: { id: string }[]) => {
   const sourceIds = sourceArray.map(item => item.id);
   localProfile.value[listName] = localProfile.value[listName].filter(id => !sourceIds.includes(id));
 };

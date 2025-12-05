@@ -1,11 +1,12 @@
-<script setup>
+<script setup lang="ts">
 import { onMounted, ref, computed, defineAsyncComponent } from 'vue';
-import { useSessionStore } from './stores/session.js';
-import { useToastStore } from './stores/toast.js';
-import { useThemeStore } from './stores/theme.js';
-import { useLayoutStore } from './stores/layout.js';
+import { useSessionStore } from './stores/session';
+
+import { useThemeStore } from './stores/theme';
+import { useLayoutStore } from './stores/layout';
 import { storeToRefs } from 'pinia';
 
+import type { InitialData } from './types';
 import Dashboard from './components/views/DashboardView.vue';
 import Login from './components/views/LoginView.vue';
 import Sidebar from './components/layout/AppSidebar.vue';
@@ -20,11 +21,11 @@ const { sessionState, initialData } = storeToRefs(sessionStore);
 const { checkSession, login, logout } = sessionStore;
 
 // 更新initialData的方法，供Dashboard组件调用
-const updateInitialData = (newData) => {
+const updateInitialData = (newData: Partial<InitialData>) => {
   if (!initialData.value) {
     initialData.value = {};
   }
-  
+
   if (newData.subs) {
     initialData.value.subs = newData.subs;
   }
@@ -36,7 +37,7 @@ const updateInitialData = (newData) => {
   }
 };
 
-const toastStore = useToastStore();
+
 const themeStore = useThemeStore();
 const layoutStore = useLayoutStore();
 
@@ -103,16 +104,16 @@ const tabInfo = computed(() => {
       icon: 'node'
     }
   };
-  return tabs[activeTab.value] || tabs.dashboard;
+  return tabs[activeTab.value as keyof typeof tabs] || tabs.dashboard;
 });
 
 onMounted(() => {
   // 初始化主题
   themeStore.initTheme();
-  
+
   // 初始化布局
   layoutStore.init();
-  
+
   // 检查会话
   checkSession();
 });
@@ -140,23 +141,12 @@ onMounted(() => {
     <!-- Dashboard -->
     <div v-else class="dashboard-container">
       <!-- Sidebar -->
-      <Sidebar 
-        v-model="activeTab"
-        :subscriptions-count="subscriptionsCount"
-        :profiles-count="profilesCount"
-        :manual-nodes-count="manualNodesCount"
-        :generator-count="generatorCount"
-        :is-logged-in="sessionState === 'loggedIn'"
-        @logout="logout"
-        @settings="openSettings"
-        @help="openHelp"
-      />
+      <Sidebar v-model="activeTab" :subscriptions-count="subscriptionsCount" :profiles-count="profilesCount"
+        :manual-nodes-count="manualNodesCount" :generator-count="generatorCount"
+        :is-logged-in="sessionState === 'loggedIn'" @logout="logout" @settings="openSettings" @help="openHelp" />
 
       <!-- Main Content -->
-      <main 
-        class="main-content"
-        :class="{ 'main-content-full': !layoutStore.sidebarVisible }"
-      >
+      <main class="main-content" :class="{ 'main-content-full': layoutStore.sidebarCollapsed }">
         <!-- Content Wrapper -->
         <div class="content-wrapper">
           <!-- Page Header -->
@@ -185,11 +175,7 @@ onMounted(() => {
 
           <!-- Dashboard Content -->
           <div class="dashboard-content">
-            <Dashboard 
-              :data="initialData" 
-              :active-tab="activeTab" 
-              @update-data="updateInitialData" 
-            />
+            <Dashboard :data="initialData" :active-tab="activeTab" @update-data="updateInitialData" />
           </div>
 
           <!-- Footer -->
@@ -200,10 +186,10 @@ onMounted(() => {
 
     <!-- Global Toast -->
     <Toast />
-    
+
     <!-- Settings Modal -->
     <SettingsModal v-if="showSettingsModal" v-model:show="showSettingsModal" />
-    
+
     <!-- Help Modal -->
     <HelpModal v-if="showHelpModal" v-model:show="showHelpModal" />
   </div>
@@ -260,7 +246,9 @@ onMounted(() => {
 }
 
 @keyframes spin {
-  to { transform: rotate(360deg); }
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .loading-text {
@@ -408,7 +396,7 @@ html.dark .quick-action-btn:hover {
   .main-content {
     margin-left: 0;
   }
-  
+
   .main-content-full {
     margin-left: 0;
   }

@@ -1,9 +1,9 @@
-<script setup>
-import { ref, computed } from 'vue';
+<script setup lang="ts">
+import { ref } from 'vue';
 
-const props = defineProps({
-  login: { type: Function, required: true }
-});
+const props = defineProps<{
+  login: (password: string) => Promise<any>
+}>();
 
 const password = ref('');
 const isLoading = ref(false);
@@ -20,14 +20,14 @@ const handleSubmit = async () => {
 
   try {
     await props.login(password.value);
-  } catch (err) {
+  } catch (err: any) {
     error.value = err.message || '登录失败，请重试';
   } finally {
     isLoading.value = false;
   }
 };
 
-const handleKeyPress = (e) => {
+const handleKeyPress = (e: KeyboardEvent) => {
   if (e.key === 'Enter') {
     handleSubmit();
   }

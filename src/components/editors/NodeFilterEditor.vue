@@ -1,16 +1,16 @@
-<script setup>
-import { ref, computed, watch, onMounted } from 'vue';
+<script setup lang="ts">
+import { ref, watch, onMounted } from 'vue';
 
-const props = defineProps({
-    modelValue: {
-        type: String,
-        default: ''
-    }
+const props = withDefaults(defineProps<{
+    modelValue?: string;
+}>(), {
+    modelValue: ''
 });
 
-const emit = defineEmits(['update:modelValue']);
+const emit = defineEmits<{
+    (e: 'update:modelValue', value: string): void;
+}>();
 
-// 预定义数据
 // 预定义数据
 const protocols = [
     { label: 'Shadowsocks', value: 'ss' },
@@ -49,15 +49,15 @@ const commonKeywords = [
 ];
 
 // 状态
-const mode = ref('exclude'); // 'exclude' | 'keep'
-const selectedProtocols = ref([]);
-const selectedRegions = ref([]);
-const customKeywords = ref([]);
+const mode = ref<'exclude' | 'keep'>('exclude'); // 'exclude' | 'keep'
+const selectedProtocols = ref<string[]>([]);
+const selectedRegions = ref<string[]>([]);
+const customKeywords = ref<string[]>([]);
 const newKeyword = ref('');
 const isManualMode = ref(false);
 
 // 解析逻辑：尝试从字符串还原状态
-const parseValue = (val) => {
+const parseValue = (val: string) => {
     if (!val) return;
 
     // 简单启发式检查：如果包含复杂的正则符号（除了我们生成的），则切换到手动模式
@@ -72,9 +72,9 @@ const parseValue = (val) => {
 
     const cleanLines = lines.map(l => l.replace(/^keep:/, ''));
 
-    let foundProtocols = [];
-    let foundRegions = [];
-    let foundKeywords = [];
+    let foundProtocols: string[] = [];
+    let foundRegions: string[] = [];
+    let foundKeywords: string[] = [];
 
     cleanLines.forEach(line => {
         if (line.startsWith('proto:')) {
@@ -110,7 +110,7 @@ const parseValue = (val) => {
 const generateString = () => {
     if (isManualMode.value) return props.modelValue;
 
-    const lines = [];
+    const lines: string[] = [];
     const prefix = mode.value === 'keep' ? 'keep:' : '';
 
     // 1. 协议
@@ -158,11 +158,11 @@ const addKeyword = () => {
     }
 };
 
-const removeKeyword = (k) => {
+const removeKeyword = (k: string) => {
     customKeywords.value = customKeywords.value.filter(item => item !== k);
 };
 
-const toggleRegion = (rValue) => {
+const toggleRegion = (rValue: string) => {
     const index = selectedRegions.value.indexOf(rValue);
     if (index === -1) {
         selectedRegions.value.push(rValue);
@@ -171,7 +171,7 @@ const toggleRegion = (rValue) => {
     }
 };
 
-const toggleProtocol = (pValue) => {
+const toggleProtocol = (pValue: string) => {
     const index = selectedProtocols.value.indexOf(pValue);
     if (index === -1) {
         selectedProtocols.value.push(pValue);
@@ -281,7 +281,8 @@ const clearAll = () => {
                     {{ isManualMode ? '切换回可视化模式' : '切换到手动编辑模式' }}
                 </button>
             </div>
-            <textarea :value="modelValue" @input="$emit('update:modelValue', $event.target.value)"
+            <textarea :value="modelValue"
+                @input="$emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)"
                 :readonly="!isManualMode" rows="3"
                 class="w-full px-3 py-2 bg-gray-100 dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-lg text-xs font-mono text-gray-600 dark:text-gray-400 focus:outline-none"
                 :class="{ 'opacity-75 cursor-not-allowed': !isManualMode }"></textarea>

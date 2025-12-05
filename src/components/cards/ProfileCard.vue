@@ -74,14 +74,14 @@ const totalNodeCount = computed(() => {
             {{ profile.name }}
           </p>
         </div>
-        <p class="text-sm text-gray-500 dark:text-gray-400 break-words leading-relaxed">
+        <p class="text-sm text-gray-700 dark:text-gray-300 break-words leading-relaxed">
           包含 {{ profile.subscriptions.length }} 个订阅，{{ totalNodeCount }} 个节点
         </p>
       </div>
 
       <div class="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-300">
         <button @click.stop="emit('edit')"
-          class="p-1.5 rounded-lg hover:bg-indigo-500/10 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
+          class="p-1.5 rounded-lg hover:bg-indigo-500/10 text-gray-500 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200"
           title="编辑">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"
             stroke-width="2">
@@ -90,7 +90,7 @@ const totalNodeCount = computed(() => {
           </svg>
         </button>
         <button @click.stop="emit('delete')"
-          class="p-1.5 rounded-lg hover:bg-red-500/10 text-gray-400 hover:text-red-500 transition-all duration-200"
+          class="p-1.5 rounded-lg hover:bg-red-500/10 text-gray-500 dark:text-gray-300 hover:text-red-500 transition-all duration-200"
           title="删除">
           <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"
             stroke-width="2">

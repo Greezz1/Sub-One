@@ -2,17 +2,17 @@
 import { computed } from 'vue';
 import type { Node } from '../../types';
 
-const props = defineProps < {
+const props = defineProps<{
   node: Node;
   isBatchMode?: boolean;
   isSelected?: boolean;
-} > ();
+}>();
 
-const emit = defineEmits < {
+const emit = defineEmits<{
   (e: 'delete'): void;
-(e: 'edit'): void;
-(e: 'toggleSelect'): void;
-}> ();
+  (e: 'edit'): void;
+  (e: 'toggleSelect'): void;
+}>();
 
 const getProtocol = (url?: string) => {
   try {
@@ -114,7 +114,7 @@ const protocolStyle = computed(() => {
         <div
           class="flex-shrink-0 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all duration-300">
           <button @click.stop="emit('edit')"
-            class="p-2.5 rounded-xl hover:bg-indigo-500/10 text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200 hover-lift"
+            class="p-2.5 rounded-xl hover:bg-indigo-500/10 text-gray-500 dark:text-gray-300 hover:text-indigo-600 dark:hover:text-indigo-400 transition-all duration-200 hover-lift"
             title="编辑节点">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
               stroke="currentColor" stroke-width="2">
@@ -123,7 +123,7 @@ const protocolStyle = computed(() => {
             </svg>
           </button>
           <button @click.stop="emit('delete')"
-            class="p-2.5 rounded-xl hover:bg-red-500/10 text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-all duration-200 hover-lift"
+            class="p-2.5 rounded-xl hover:bg-red-500/10 text-gray-500 dark:text-gray-300 hover:text-red-500 dark:hover:text-red-400 transition-all duration-200 hover-lift"
             title="删除节点">
             <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4" fill="none" viewBox="0 0 24 24"
               stroke="currentColor" stroke-width="2">
@@ -137,7 +137,7 @@ const protocolStyle = computed(() => {
       <!-- URL区域 -->
       <div class="flex-grow flex flex-col justify-start space-y-3">
         <div class="relative">
-          <label class="block text-xs font-medium text-gray-500 dark:text-gray-400 mb-2">节点链接</label>
+          <label class="block text-xs font-medium text-gray-700 dark:text-gray-300 mb-2">节点链接</label>
           <input type="text" :value="node.url" readonly
             class="w-full px-3 py-2 text-sm text-gray-500 dark:text-gray-400 font-mono bg-gray-50/60 dark:bg-gray-900/75 border border-gray-200 dark:border-gray-700 rounded-xl transition-all duration-300 truncate" />
         </div>

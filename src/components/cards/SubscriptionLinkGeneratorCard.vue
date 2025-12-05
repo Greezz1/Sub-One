@@ -126,7 +126,7 @@ onUnmounted(() => {
               <option v-for="profile in profiles" :key="profile.id" :value="profile.customId || profile.id"
                 class="py-2 bg-white text-gray-900 dark:bg-gray-800 dark:text-white">
                 {{ profile.name }}
-                <span v-if="profile.nodeCount !== undefined" class="text-xs text-gray-500 dark:text-gray-400 ml-2">
+                <span v-if="profile.nodeCount !== undefined" class="text-xs text-gray-700 dark:text-gray-300 ml-2">
                   ({{ profile.nodeCount }} 节点)
                 </span>
               </option>

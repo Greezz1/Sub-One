@@ -30,11 +30,11 @@ body {
 
 body {
   background: linear-gradient(135deg, 
-    hsl(243, 100%, 97%) 0%,
-    hsl(280, 100%, 97%) 25%,
-    hsl(189, 100%, 95%) 50%,
-    hsl(280, 100%, 97%) 75%,
-    hsl(243, 100%, 97%) 100%
+    hsl(243, 35%, 94%) 0%,
+    hsl(280, 30%, 93%) 25%,
+    hsl(189, 35%, 92%) 50%,
+    hsl(280, 30%, 93%) 75%,
+    hsl(243, 35%, 94%) 100%
   );
   background-size: 400% 400%;
   background-attachment: fixed;
@@ -484,8 +484,8 @@ html.dark body::after {
 /* Login Page */
 .login-container {
   @apply min-h-screen flex-center p-6;
-  background: radial-gradient(ellipse at top, hsl(243, 100%, 97%) 0%, transparent 50%),
-              radial-gradient(ellipse at bottom, hsl(280, 100%, 97%) 0%, transparent 50%);
+  background: radial-gradient(ellipse at top, hsl(243, 35%, 94%) 0%, transparent 50%),
+              radial-gradient(ellipse at bottom, hsl(280, 30%, 93%) 0%, transparent 50%);
 }
 
 html.dark .login-container {

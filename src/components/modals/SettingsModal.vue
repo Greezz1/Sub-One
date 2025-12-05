@@ -177,7 +177,7 @@ watch(() => props.show, (newValue) => {
               <label for="profileToken"
                 class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">订阅组分享Token</label>
               <input type="text" id="profileToken" v-model="settings.profileToken" class="input-modern-enhanced w-full"
-                placeholder="例如：my-profiles 或 group-share（必须与订阅Token不同）">
+                placeholder="例如：my（必须与订阅Token不同）">
               <p class="text-xs text-amber-600 dark:text-amber-400 mt-2 flex items-start gap-1">
                 <svg xmlns="http://www.w3.org/2000/svg" class="h-3 w-3 mt-0.5 flex-shrink-0" fill="none"
                   viewBox="0 0 24 24" stroke="currentColor">

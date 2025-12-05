@@ -513,6 +513,13 @@ const handleProfileToggle = async (updatedProfile: Profile) => {
   }
 };
 const handleAddProfile = () => {
+  // 检查 profileToken 是否已配置
+  const token = config.value?.profileToken;
+  if (!token || !token.trim()) {
+    showToast('请先在"设置"中配置"订阅组分享Token"，否则无法创建订阅组', 'error');
+    return;
+  }
+
   isNewProfile.value = true;
   editingProfile.value = { id: '', name: '', enabled: true, subscriptions: [], manualNodes: [], customId: '', subConverter: '', subConfig: '', expiresAt: '' };
   showProfileModal.value = true;

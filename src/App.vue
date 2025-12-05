@@ -165,12 +165,7 @@ onMounted(() => {
               <!-- Removed unused refresh button -->
             </div>
 
-            <!-- Progress Indicator (Optional) -->
-            <div class="header-progress">
-              <div class="progress-bar">
-                <div class="progress-bar-fill" style="width: 100%"></div>
-              </div>
-            </div>
+
           </header>
 
           <!-- Dashboard Content -->

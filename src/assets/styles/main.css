@@ -74,7 +74,7 @@ body::after {
   position: fixed;
   border-radius: 50%;
   filter: blur(100px);
-  opacity: 0.3;
+  opacity: 0.15;
   pointer-events: none;
   z-index: 0;
 }
